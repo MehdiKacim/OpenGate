@@ -1,0 +1,2 @@
+// SDK placeholder for external consumers
+export const SDK_VERSION = "0.1.0"

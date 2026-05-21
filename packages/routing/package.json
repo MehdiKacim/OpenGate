@@ -1,0 +1,23 @@
+{
+  "name": "@opengate/routing",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opengate/shared": "workspace:*",
+    "@opengate/db": "workspace:*",
+    "@opengate/providers": "workspace:*",
+    "kysely": "^0.27.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

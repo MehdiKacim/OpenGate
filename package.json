@@ -1,0 +1,35 @@
+{
+  "name": "opengate",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "start": "node apps/server/dist/index.js",
+    "cli": "node apps/server/dist/cli.js",
+    "dev:server": "node --watch apps/server/dist/index.js",
+    "dev:web": "pnpm --filter @opengate/web dev",
+    "validate": "node apps/server/dist/cli.js validate",
+    "test": "vitest --run",
+    "lint": "eslint .",
+    "docs": "pnpm docs:api && pnpm docs:components && pnpm docs:typedoc && pnpm docs:db",
+    "docs:components": "react-docgen apps/web/src --out docs/components/react-docgen.json",
+    "docs:typedoc": "typedoc packages --out docs/api/typedoc",
+    "docs:api": "node scripts/generate-openapi.js",
+    "docs:db": "node scripts/generate-db-docs.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "typedoc": "^0.26.0",
+    "react-docgen": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
