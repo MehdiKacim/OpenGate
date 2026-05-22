@@ -22,7 +22,7 @@
     "docs:api": "node scripts/generate-openapi.js",
     "docs:db": "node scripts/generate-db-docs.js",
     "smoke": "tsx scripts/smoke.ts",
-    "package:windows": "pnpm build && node scripts/package-windows.js"
+    "package:windows": "pnpm --filter @opengate/web build && pnpm --filter @opengate/server build && node scripts/package-windows.js"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
