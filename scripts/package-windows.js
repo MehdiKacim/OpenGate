@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
  * Windows packaging script for OpenGate.
+ * Strategy:
+ * 1. Try pkg (Yao-pkg/pkg) to produce a single exe with source fallback for dynamic modules.
+ * 2. If pkg doesn't produce an executable, fallback to a standalone zip containing 
+ *    the built production JS, isolated production node_modules via pnpm deploy, and a bat launcher.
  */
 
 import { execSync } from "node:child_process"
@@ -61,7 +65,7 @@ function packageWithPkg() {
 
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  // Ajout de --fallback-to-source pour tolérer les échecs de build bytecode liés à Hono
+  // Utilisation du flag --fallback-to-source pour gérer proprement les dépendances comme Hono
   sh("npx pkg apps/server/dist/index.js --options fallback-to-source --out-path artifact/opengate-windows-x64")
 
   const exePath = join(outDir, "index.exe")
@@ -81,12 +85,11 @@ function packageFallback() {
   if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
 
-  // Syntaxe pnpm deploy corrigée sans l'argument 'prod' en trop
-  // NOTE: Remplace "server" par le "name" exact défini dans apps/server/package.json si différent (ex: @opengate/server)
+  // 1. Déploiement isolé du workspace serveur avec pnpm deploy
   console.log("Deploying server app with production dependencies...")
   sh(`pnpm --filter server deploy "${outDir}"`)
 
-  // 2. On s'assure que le build de l'application web est bien copié au bon endroit pour le serveur statique
+  // 2. Copie du build du frontend statique (Web)
   const webDistSrc = join(root, 'apps', 'web', 'dist')
   const webDistDst = join(outDir, 'apps', 'web', 'dist')
   if (existsSync(webDistSrc)) {
@@ -94,7 +97,7 @@ function packageFallback() {
     sh(`xcopy /E /I /Y "${webDistSrc}" "${webDistDst}"`)
   }
 
-  // 3. Copie des migrations de la base de données requises au runtime
+  // 3. Copie des fichiers de migrations de base de données requis
   const migrationsSrc = join(root, 'packages', 'db', 'src', 'migrations')
   const migrationsDst = join(outDir, 'packages', 'db', 'src', 'migrations')
   if (existsSync(migrationsSrc)) {
@@ -102,10 +105,12 @@ function packageFallback() {
     sh(`xcopy /E /I /Y "${migrationsSrc}" "${migrationsDst}"`)
   }
 
+  // 4. Ajout de la documentation basique au livrable
   if (existsSync(join(root, "README.md"))) {
     copyFileSync(join(root, "README.md"), join(outDir, "README.md"))
   }
 
+  // 5. Génération du lanceur .bat pointant vers la racine du déploiement
   const launcher = `@echo off
 setlocal
 set "NODE_ENV=production"
@@ -113,7 +118,8 @@ node "%~dp0index.js" %*
 `
   writeFileSync(join(outDir, "opengate.bat"), launcher, "utf-8")
 
-  sh(`powershell -Command "Compress-Archive -Path '${outDir}\\*' -DestinationPath '${zipPath}' -Force"`)
+  // 6. Compression ultra-rapide avec 7-Zip au lieu de Compress-Archive
+  sh(`7z a "${zipPath}" "${outDir}\\*"`)
   console.log(`Fallback zip created: ${zipPath}`)
 }
 
@@ -132,6 +138,7 @@ if (hasPkg()) {
 if (!ok) {
   packageFallback()
 } else {
-  sh(`powershell -Command "Compress-Archive -Path '${outDir}\\*' -DestinationPath '${zipPath}' -Force"`)
+  // Compression également optimisée avec 7-Zip en cas de succès du binaire unique
+  sh(`7z a "${zipPath}" "${outDir}\\*"`)
   console.log(`Windows artifact ready: ${zipPath}`)
 }
