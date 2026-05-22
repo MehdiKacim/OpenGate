@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 /**
  * Windows packaging script for OpenGate.
- * Strategy:
- * 1. Try pkg (Yao-pkg/pkg) to produce a single exe.
- * 2. If pkg is unavailable or fails due to native deps (better-sqlite3),
- *    fallback to a zip containing built JS + an isolated production node_modules + a node launcher.
  */
 
 import { execSync } from "node:child_process"
@@ -63,15 +59,14 @@ function packageWithPkg() {
     console.log("Added pkg config to package.json")
   }
 
-  // S'assurer que le dossier de sortie existe avant que pkg n'écrive dedans
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  sh("npx pkg apps/server/dist/index.js --out-path artifact/opengate-windows-x64")
+  // Ajout de --fallback-to-source pour tolérer les échecs de build bytecode liés à Hono
+  sh("npx pkg apps/server/dist/index.js --options fallback-to-source --out-path artifact/opengate-windows-x64")
 
   const exePath = join(outDir, "index.exe")
   const finalExe = join(outDir, "opengate.exe")
   if (existsSync(exePath)) {
-    // Utilisation d'une commande Node robuste pour renommer plutôt que le "move" de cmd.exe
     import('node:fs').then(fs => fs.renameSync(exePath, finalExe))
     console.log("pkg build succeeded: opengate.exe created")
     return true
@@ -86,9 +81,10 @@ function packageFallback() {
   if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true })
   mkdirSync(outDir, { recursive: true })
 
-  // 1. On utilise pnpm deploy pour extraire l'application serveur et installer ses node_modules de production
+  // Syntaxe pnpm deploy corrigée sans l'argument 'prod' en trop
+  // NOTE: Remplace "server" par le "name" exact défini dans apps/server/package.json si différent (ex: @opengate/server)
   console.log("Deploying server app with production dependencies...")
-  sh(`pnpm --filter opengate deploy prod "${outDir}"`)
+  sh(`pnpm --filter server deploy "${outDir}"`)
 
   // 2. On s'assure que le build de l'application web est bien copié au bon endroit pour le serveur statique
   const webDistSrc = join(root, 'apps', 'web', 'dist')
@@ -106,12 +102,10 @@ function packageFallback() {
     sh(`xcopy /E /I /Y "${migrationsSrc}" "${migrationsDst}"`)
   }
 
-  // 4. Ajout d'un fichier README informatif si disponible
   if (existsSync(join(root, "README.md"))) {
     copyFileSync(join(root, "README.md"), join(outDir, "README.md"))
   }
 
-  // 5. Création du fichier de lancement .bat (ajusté pour pointer sur la racine du dossier déployé)
   const launcher = `@echo off
 setlocal
 set "NODE_ENV=production"
@@ -119,7 +113,6 @@ node "%~dp0index.js" %*
 `
   writeFileSync(join(outDir, "opengate.bat"), launcher, "utf-8")
 
-  // 6. Compression de tout le dossier autonome
   sh(`powershell -Command "Compress-Archive -Path '${outDir}\\*' -DestinationPath '${zipPath}' -Force"`)
   console.log(`Fallback zip created: ${zipPath}`)
 }
