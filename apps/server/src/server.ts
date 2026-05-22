@@ -14,14 +14,23 @@ import { openApiSpec } from "./openapi.js"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { readFile } from "node:fs/promises"
+import { existsSync } from "node:fs" // Ajout de l'import natif pour checker le dossier
 
 export interface ServeOptions {
   port: number
   db: Kysely<Database>
 }
 
+// 1. Chemin classique utilisé en développement local (relatif au fichier source)
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const staticRoot = join(__dirname, "../../../web/dist")
+const devStaticRoot = join(__dirname, "../../../web/dist")
+
+// 2. Chemin utilisé une fois packagé dans l'exécutable autonome (relatif au dossier d'exécution)
+const prodStaticRoot = join(process.cwd(), "apps/web/dist")
+
+// 3. Choix intelligent : si le dossier de prod existe (cas du .exe extrait), on le prend.
+// Sinon, on reste sur le comportement de dev.
+const staticRoot = existsSync(prodStaticRoot) ? prodStaticRoot : devStaticRoot
 
 export function serve(opts: ServeOptions) {
   const app = new Hono()
