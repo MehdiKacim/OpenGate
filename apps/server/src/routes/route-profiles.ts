@@ -4,6 +4,7 @@ import type { Kysely } from "kysely"
 import type { Database } from "@opengate/db"
 import { createProviderAdapter } from "@opengate/providers"
 import { resolveRouting } from "@opengate/routing"
+import { OpenAIChatCompletionRequestSchema } from "@opengate/shared"
 
 export interface RouteProfileRouteOptions {
   db: Kysely<Database>
@@ -62,16 +63,24 @@ export function routeProfileRoutes(opts: RouteProfileRouteOptions) {
       return c.json({ error: `Route profile not found: ${profileSlug}` }, 404)
     }
 
-    const body = await c.req.json().catch(() => null)
-    if (!body) {
+    const json = await c.req.json().catch(() => null)
+    if (!json) {
       return c.json({ error: "Invalid JSON body" }, 400)
     }
 
-    const modelName = String(body.model || "")
-    if (!modelName) {
-      return c.json({ error: "Missing model" }, 400)
+    const parsedBody = OpenAIChatCompletionRequestSchema.safeParse(json)
+    if (!parsedBody.success) {
+      return c.json({
+        error: "Invalid OpenAI chat completion request",
+        issues: parsedBody.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      }, 400)
     }
 
+    const body = parsedBody.data
+    const modelName = body.model
     const reqId = randomUUID()
     const startedAt = new Date().toISOString()
 
@@ -89,7 +98,7 @@ export function routeProfileRoutes(opts: RouteProfileRouteOptions) {
 
     // Resolve routing
     const userMessage =
-      body.messages?.find((m: { role: string; content?: string }) => m.role === "user")
+      body.messages?.find((m) => m.role === "user")
         ?.content || ""
 
     const routing = await resolveRouting({

@@ -41,4 +41,19 @@ describe("migrations", () => {
     expect(expert).toBeDefined()
     expect(expert?.system_prompt).toContain("building")
   })
+
+  it("rejects duplicate expert names inside a route profile", async () => {
+    const expert = await db
+      .selectFrom("experts")
+      .selectAll()
+      .where("name", "=", "builder")
+      .executeTakeFirstOrThrow()
+
+    await expect(
+      db.insertInto("experts").values({
+        ...expert,
+        id: "duplicate-builder",
+      }).execute(),
+    ).rejects.toThrow()
+  })
 })

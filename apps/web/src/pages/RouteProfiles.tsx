@@ -110,7 +110,7 @@ export default function RouteProfiles() {
   const [expertDirty, setExpertDirty] = useState(false)
 
   const updateExpertMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/experts/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/experts/${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["resolved", selectedSlug] })
       setEditingExpert(null)
@@ -119,7 +119,7 @@ export default function RouteProfiles() {
   })
 
   const deleteExpertMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/experts/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/experts/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["resolved", selectedSlug] }),
   })
 

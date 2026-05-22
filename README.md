@@ -86,7 +86,7 @@ CLI flags:
 - `apps/web` — React + Vite admin dashboard with ReactFlow graph
 - `packages/db` — SQLite + Kysely schema and migrations
 - `packages/core` — Domain services (import/export, routing resolution)
-- `packages/providers` — Provider adapters (static, proxy, oauth)
+- `packages/providers` — Provider adapters (static, proxy, isolated OAuth adapter wiring)
 - `packages/routing` — Routing resolution engine
 - `packages/shared` — Shared types and schemas
 - `packages/sdk` — Client SDK placeholder
@@ -94,6 +94,48 @@ CLI flags:
 ## Specs & Architecture
 
 See [`specs/`](specs/) for architecture documents and ADRs.
+
+## Provider auth status
+
+`static` and OpenAI-compatible `proxy` providers are usable now. OAuth providers
+are wired through isolated adapters for `kimi`, `chatgpt`, and `gemini` so the
+runtime reports a provider-specific auth/configuration error instead of treating
+all OAuth providers as unsupported.
+
+The first recovered OAuth path is Kimi: when a local Kimi access token is
+present, OpenGate forwards OpenAI chat-completions requests to the Kimi coding
+endpoint with the recovered Kimi CLI headers. The historical Kimi refresh/login
+flow still needs a new CLI entry point.
+
+ChatGPT/Codex and Gemini now keep their auth boundary explicit, but their
+historical adapters depend on translation/setup flows that are not fully
+integrated into this OpenAI chat-completions runtime yet. With auth present they
+return a clear `501` provider message instead of claiming full support.
+
+OAuth secrets live outside route profiles and project markers. The default
+local store is:
+
+```text
+~/.opengate/auth.json
+```
+
+Override the path with `OPENGATE_AUTH_PATH` when needed. The store is shaped as
+an object with a `providers` map. Records may be keyed by the provider id or by
+`adapter:provider-id`; a record carries local credential fields such as
+`accessToken`, optional refresh metadata, provider-specific headers, and an
+optional upstream base URL.
+
+Route profile export/import includes only public provider identity such as:
+
+```json
+{
+  "name": "kimi",
+  "type": "oauth",
+  "adapter": "kimi"
+}
+```
+
+It never exports tokens, sessions, API keys, or the local auth store.
 
 ## API
 

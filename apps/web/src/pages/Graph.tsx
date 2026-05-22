@@ -360,7 +360,7 @@ export default function Graph() {
   }, [])
 
   const updateExpertMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/experts/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/experts/${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["graph-design", slug] })
       qc.invalidateQueries({ queryKey: ["resolved", slug] })
@@ -372,39 +372,39 @@ export default function Graph() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }); setSelectedNode(null) },
   })
   const deleteExpertMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/experts/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/experts/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }); setSelectedNode(null) },
   })
   const createKeywordMut = useMutation({
-    mutationFn: ({ expertId, body }: { expertId: string; body: unknown }) => apiPost(`/experts/${expertId}/keywords`, body),
+    mutationFn: ({ expertId, body }: { expertId: string; body: unknown }) => apiPost(`/_opengate/experts/${expertId}/keywords`, body),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
   const updateKeywordMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/expert-keywords/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/expert-keywords/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["graph-design", slug] }),
   })
   const deleteKeywordMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/expert-keywords/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/expert-keywords/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
   const createOverrideMut = useMutation({
-    mutationFn: ({ expertId, body }: { expertId: string; body: unknown }) => apiPost(`/experts/${expertId}/overrides`, body),
+    mutationFn: ({ expertId, body }: { expertId: string; body: unknown }) => apiPost(`/_opengate/experts/${expertId}/overrides`, body),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
   const updateOverrideMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/keyword-overrides/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/keyword-overrides/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["graph-design", slug] }),
   })
   const deleteOverrideMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/keyword-overrides/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/keyword-overrides/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
   const updateProviderMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/providers/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/providers/${id}`, body),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }) },
   })
   const deleteProviderMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/providers/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/providers/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }); setSelectedNode(null) },
   })
   const createProviderMut = useMutation({
@@ -412,11 +412,11 @@ export default function Graph() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }); setCreatingProvider(false) },
   })
   const updateModelMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/provider-models/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/provider-models/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["graph-design", slug] }),
   })
   const deleteModelMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/provider-models/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/provider-models/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
 

@@ -23,7 +23,9 @@ const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"))
 const version = pkg.version || "0.0.0"
 
 const outDir = join(root, "artifact", `opengate-windows-x64-v${version}`)
-const zipPath = join(root, `opengate-windows-x64-v${version}.zip`)
+// Keep the CI handoff stable. The release job adds its monotonically
+// increasing release version after downloading this artifact.
+const zipPath = join(root, "opengate-windows-x64.zip")
 
 function clean() {
   const artifactRoot = join(root, "artifact")
@@ -34,6 +36,18 @@ function clean() {
 function sh(cmd) {
   console.log(`> ${cmd}`)
   return execSync(cmd, { stdio: "inherit", cwd: root, shell: true })
+}
+
+function zipArtifact() {
+  try {
+    sh(`7z a "${zipPath}" "${outDir}\\*"`)
+    return
+  } catch (err) {
+    if (process.platform !== "win32") throw err
+    console.warn("7z is unavailable; falling back to PowerShell Compress-Archive.")
+  }
+
+  sh(`powershell -NoProfile -Command "Compress-Archive -Path '${outDir}\\*' -DestinationPath '${zipPath}' -Force"`)
 }
 
 function buildExecutable() {
@@ -76,8 +90,8 @@ function buildExecutable() {
   rmSync(join(outDir, "dist-cli.js"))
 
   console.log("\n--- 6. Compression de l'exécutable unique ---")
-  sh(`7z a "${zipPath}" "${outDir}\\*"`)
-  console.log(`\nSuccès ! L'archive incrémentée est prête : opengate-windows-x64-v${version}.zip`)
+  zipArtifact()
+  console.log("\nSuccès ! L'archive Windows est prête : opengate-windows-x64.zip")
 }
 
 clean()

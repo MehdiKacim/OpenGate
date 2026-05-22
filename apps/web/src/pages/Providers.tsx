@@ -38,7 +38,7 @@ export default function Providers() {
   const models: ProviderModel[] = data?.models ?? []
 
   const updateProviderMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/providers/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/providers/${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["providers", slug] })
       setEditingProvider(null)
@@ -47,7 +47,7 @@ export default function Providers() {
   })
 
   const deleteProviderMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/providers/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/providers/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["providers", slug] }),
   })
 
@@ -57,18 +57,18 @@ export default function Providers() {
   })
 
   const updateModelMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/provider-models/${id}`, body),
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/_opengate/provider-models/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["providers", slug] }),
   })
 
   const deleteModelMut = useMutation({
-    mutationFn: (id: string) => apiDelete(`/provider-models/${id}`),
+    mutationFn: (id: string) => apiDelete(`/_opengate/provider-models/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["providers", slug] }),
   })
 
   const createModelMut = useMutation({
     mutationFn: ({ providerId, body }: { providerId: string; body: unknown }) =>
-      apiPost(`/providers/${providerId}/models`, body),
+      apiPost(`/_opengate/providers/${providerId}/models`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["providers", slug] }),
   })
 
