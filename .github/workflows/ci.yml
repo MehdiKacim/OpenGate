@@ -25,9 +25,10 @@ jobs:
       - run: pnpm test
       - run: pnpm run docs
 
+      # Étape Doc : On sauvegarde le dossier généré par tes scripts (OpenAPI / DB Docs)
       - uses: actions/upload-artifact@v4
         with:
-          name: opengate-docs
+          name: opengate-docs-raw
           path: docs/
 
   package-windows:
@@ -47,12 +48,15 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      
+      # Exécute ton script de packaging (génère opengate-windows-x64.zip à la racine)
       - run: pnpm package:windows
 
+      # On uploade le zip généré directement par ton script
       - uses: actions/upload-artifact@v4
         with:
-          name: opengate-windows-binary
-          path: "**/*.exe"
+          name: opengate-windows-zip
+          path: opengate-windows-x64.zip
 
   release:
     needs: [build-and-test, package-windows]
@@ -69,43 +73,41 @@ jobs:
           BASE=$(node -p "require('./package.json').version")
           echo "version=${BASE}.${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
-      - name: Download Windows binary
+      # On télécharge le zip de l'application Windows
+      - name: Download Windows ZIP
         uses: actions/download-artifact@v4
         with:
-          name: opengate-windows-binary
-          path: release-artifacts
+          name: opengate-windows-zip
+          path: .
 
+      # On télécharge les artefacts bruts de la doc
       - name: Download Docs
         uses: actions/download-artifact@v4
         with:
-          name: opengate-docs
+          name: opengate-docs-raw
           path: temp-docs
 
+      # On renomme l'application et on compresse proprement la doc
       - name: Prepare assets
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          
           mkdir -p final-assets
-          find release-artifacts -name "*.exe" -exec cp {} final-assets/ \;
           
-          cd final-assets
-          for f in *.exe; do
-            [ -e "$f" ] || continue
-            mv "$f" "${f%.exe}-v${VERSION}.exe"
-          done
-          cd ..
-
+          # Renommer le zip Windows avec la version de la CI
+          mv opengate-windows-x64.zip "final-assets/opengate-windows-x64-v${VERSION}.zip"
+          
+          # Zipper le dossier complet de la documentation
           cd temp-docs
           zip -r "../final-assets/opengate-docs-v${VERSION}.zip" ./*
           cd ..
 
+      # Publication finale des deux archives ZIP sur GitHub Releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Release v${{ steps.version.outputs.version }}
           files: |
-            final-assets/*.exe
             final-assets/*.zip
           generate_release_notes: true
