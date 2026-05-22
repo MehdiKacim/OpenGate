@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Windows packaging script for OpenGate.
- * Strategy: Bundle with esbuild and inject into Node SEA container.
+ * Strategy: Bundle with esbuild (via pnpm dlx) and inject into Node SEA container.
  */
 
 import { execSync } from "node:child_process"
@@ -26,9 +26,9 @@ function buildExecutable() {
   console.log("\n--- 1. Bundling de la CLI et du Serveur via esbuild ---")
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  // L'astuce magique : On redéfinit statiquement la variable staticRoot de ton serveur
-  // au moment du build pour qu'elle pointe vers le sous-dossier de notre artefact final.
-  sh(`npx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js" --define:staticRoot="join(process.cwd(), 'apps/web/dist')"`)
+  // Utilisation de pnpm dlx pour garantir que la CI Windows trouve et exécute esbuild correctement.
+  // On fige statiquement la variable staticRoot pour cibler le dossier local apps/web/dist.
+  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js" --define:staticRoot="join(process.cwd(), 'apps/web/dist')"`)
 
   console.log("\n--- 2. Préparation du moteur d'exécution Node.js natif ---")
   const nodeExePath = join(outDir, "node.exe")
@@ -47,12 +47,12 @@ function buildExecutable() {
   console.log("\n--- 4. Injection du code à l'intérieur du binaire ---")
   const finalExe = join(outDir, "opengate.exe")
   
-  sh(`npx postject "${nodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
+  sh(`pnpm dlx postject "${nodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
   
   import('node:fs').then(fs => fs.renameSync(nodeExePath, finalExe))
 
   console.log("\n--- 5. Intégration des dossiers d'assets (Web & Migrations) ---")
-  // Copie de l'UI statique
+  // Copie de l'UI statique React/Vite
   const webDistSrc = join(root, 'apps', 'web', 'dist')
   const webDistDst = join(outDir, 'apps', 'web', 'dist')
   if (existsSync(webDistSrc)) {
@@ -60,7 +60,7 @@ function buildExecutable() {
     sh(`xcopy /E /I /Y "${webDistSrc}" "${webDistDst}"`)
   }
 
-  // Copie des fichiers de migrations SQLite
+  // Copie des fichiers de migrations Kysely pour le schéma SQLite au boot
   const migrationsSrc = join(root, 'packages', 'db', 'src', 'migrations')
   const migrationsDst = join(outDir, 'packages', 'db', 'src', 'migrations')
   if (existsSync(migrationsSrc)) {
@@ -72,14 +72,14 @@ function buildExecutable() {
     copyFileSync(join(root, "README.md"), join(outDir, "README.md"))
   }
 
-  // Nettoyage des fichiers temporaires
+  // Nettoyage des fichiers temporaires de build
   rmSync(configPath)
   rmSync(join(outDir, "opengate.blob"))
   rmSync(join(outDir, "dist-cli.js"))
 
-  console.log("\n--- 6. Compression ultra-rapide avec 7-Zip ---")
+  console.log("\n--- 6. Compression finale ultra-rapide avec 7-Zip ---")
   sh(`7z a "${zipPath}" "${outDir}\\*"`)
-  console.log(`\nParfait ! Ton archive Windows contient maintenant ton 'opengate.exe' et son dossier d'UI complet.`)
+  console.log(`\nFait ! Ton archive Windows contient maintenant ton exécutable natif autonome 'opengate.exe'.`)
 }
 
 clean()
