@@ -1,4 +1,4 @@
-Name: CI and Release
+name: CI and Release
 
 on:
   push:
@@ -25,8 +25,6 @@ jobs:
       - run: pnpm test
       - run: pnpm run docs
 
-      # On sauvegarde le dossier de la doc générée. 
-      # Si tes scripts créent un dossier 'docs/', on prend tout son contenu.
       - uses: actions/upload-artifact@v4
         with:
           name: opengate-docs
@@ -49,12 +47,8 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      
-      # Lance ton script de packaging qui appelle @yao-pkg/pkg
       - run: pnpm package:windows
 
-      # On utilise une recherche récursive (**/*.exe) pour trouver l'exécutable,
-      # qu'il soit à la racine ou planqué dans 'apps/server/dist/'
       - uses: actions/upload-artifact@v4
         with:
           name: opengate-windows-binary
@@ -75,28 +69,23 @@ jobs:
           BASE=$(node -p "require('./package.json').version")
           echo "version=${BASE}.${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
-      # On récupère le binaire extrait au job précédent
       - name: Download Windows binary
         uses: actions/download-artifact@v4
         with:
           name: opengate-windows-binary
           path: release-artifacts
 
-      # On récupère la doc
       - name: Download Docs
         uses: actions/download-artifact@v4
         with:
           name: opengate-docs
           path: temp-docs
 
-      # On prépare les fichiers pour la release
       - name: Prepare assets
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           
-          # On va dans le dossier où se trouvent les .exe (parfois imbriqués à cause du pattern **)
-          # et on les rassemble proprement à la racine de release-artifacts en les renommant
           mkdir -p final-assets
           find release-artifacts -name "*.exe" -exec cp {} final-assets/ \;
           
@@ -107,12 +96,10 @@ jobs:
           done
           cd ..
 
-          # On compresse le dossier de la doc en un fichier zip nommé avec la version
           cd temp-docs
           zip -r "../final-assets/opengate-docs-v${VERSION}.zip" ./*
           cd ..
 
-      # Publication sur GitHub Releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
