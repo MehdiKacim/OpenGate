@@ -14,7 +14,8 @@ import { openApiSpec } from "./openapi.js"
 // --- INJECTION DE L'UI EN MÉMOIRE SANS ACCÈS DISQUE ---
 // esbuild va lire ce fichier au build et remplacer cet import par la string pure du HTML.
 // @ts-ignore
-import indexHtml from "../../../web/dist/index.html" with { type: "text" }
+import indexHtml from "../../../apps/web/dist/index.html" with { type: "text" }
+
 
 export interface ServeOptions {
   port: number
