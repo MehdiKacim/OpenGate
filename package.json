@@ -34,7 +34,8 @@
     "typedoc": "^0.26.0",
     "react-docgen": "^7.0.0",
     "concurrently": "^8.2.2",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "@yao-pkg/pkg": "^6.0.0"
   },
   "engines": {
     "node": ">=20.0.0 <23"
