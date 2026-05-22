@@ -8,9 +8,21 @@ import { exportRouteProfile, importRouteProfile } from "@opengate/core"
 import { existsSync } from "node:fs"
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
 import { join, resolve, basename } from "node:path"
+import { spawn } from "node:child_process"
 
 const log = createLogger("cli")
 const VERSION = "0.1.0"
+
+function parseOverrides(args: string[]) {
+  const portFlag = args.find((a) => a.startsWith("--port="))
+  const dbFlag = args.find((a) => a.startsWith("--db="))
+  const noOpen = args.includes("--no-open")
+  return {
+    port: portFlag ? Number(portFlag.split("=")[1]) : undefined,
+    databasePath: dbFlag ? dbFlag.split("=")[1] : undefined,
+    noOpen,
+  }
+}
 
 async function main() {
   const args = process.argv.slice(2)
@@ -22,13 +34,34 @@ async function main() {
   }
 
   if (!cmd || cmd === "serve") {
-    const config = getConfig()
+    const overrides = parseOverrides(args)
+    const env = getConfig()
+    const config = {
+      port: overrides.port ?? env.port,
+      databasePath: overrides.databasePath ?? env.databasePath,
+      logLevel: env.logLevel,
+      defaultProfileSlug: env.defaultProfileSlug,
+    }
     const db = createDatabaseConnection(config.databasePath)
     await migrateToLatest(db)
     await seedDefaults(db)
     const { port } = serve({ port: config.port, db })
-    console.log(`OpenGate listening on http://localhost:${port}`)
-    console.log(`Status: http://localhost:${port}/_opengate/status`)
+    const url = `http://localhost:${port}`
+    console.log(`OpenGate listening on ${url}`)
+    console.log(`Status: ${url}/_opengate/status`)
+    if (!overrides.noOpen) {
+      try {
+        const openCmd =
+          process.platform === "win32"
+            ? "start"
+            : process.platform === "darwin"
+              ? "open"
+              : "xdg-open"
+        spawn(openCmd, [url], { detached: true, stdio: "ignore" }).unref()
+      } catch {
+        // ignore
+      }
+    }
     return
   }
 
@@ -188,6 +221,9 @@ async function main() {
 function usageAndExit(): never {
   console.log(`Usage:
   opengate serve                          Start server
+  opengate serve --port=18765             Start server on custom port
+  opengate serve --db=./custom.db         Start server with custom DB
+  opengate serve --no-open                Start server without opening browser
   opengate seed                           Seed default presets
   opengate validate                       Validate DB and config
   opengate status                         Show server and binding status

@@ -2,50 +2,40 @@ name: Release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest, ubuntu-latest]
+        node-version: [20.x]
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.9
+          run_install: false
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 20.x
           cache: pnpm
-      - run: corepack enable
+
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
       - run: pnpm docs
 
-      - name: Package artifact (Windows)
+      - name: Package Windows artifact
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifact/opengate-windows-x64
-          Copy-Item -Recurse apps/server/dist artifact/opengate-windows-x64/apps/server/dist
-          Copy-Item -Recurse apps/web/dist artifact/opengate-windows-x64/apps/web/dist
-          Copy-Item -Recurse packages/*/dist artifact/opengate-windows-x64/packages
-          Copy-Item -Recurse docs artifact/opengate-windows-x64/docs
-          Copy-Item README.md artifact/opengate-windows-x64/README.md
-          Copy-Item package.json artifact/opengate-windows-x64/package.json
-          Copy-Item pnpm-lock.yaml artifact/opengate-windows-x64/pnpm-lock.yaml
-          Copy-Item -Recurse packages/db/src/migrations artifact/opengate-windows-x64/migrations
-          $start = @"
-          # Start OpenGate on Windows
-          pnpm install --prod
-          node apps/server/dist/index.js
-          "@
-          Set-Content -Path artifact/opengate-windows-x64/START.ps1 -Value $start
-          Compress-Archive -Path artifact/opengate-windows-x64 -DestinationPath opengate-windows-x64.zip
+        run: pnpm package:windows
 
-      - name: Package artifact (Linux)
+      - name: Package Linux artifact
         if: runner.os == 'Linux'
         run: |
           mkdir -p artifact/opengate-linux-x64

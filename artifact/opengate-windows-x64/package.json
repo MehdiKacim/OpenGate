@@ -38,5 +38,19 @@
   },
   "engines": {
     "node": ">=20.0.0 <23"
+  },
+  "pkg": {
+    "scripts": [
+      "apps/server/dist/**/*.js",
+      "packages/*/dist/**/*.js"
+    ],
+    "assets": [
+      "apps/web/dist/**/*",
+      "packages/db/src/migrations/**/*"
+    ],
+    "targets": [
+      "node20-win-x64"
+    ],
+    "outputPath": "d:\\Labo\\opengate\\artifact\\opengate-windows-x64"
   }
 }

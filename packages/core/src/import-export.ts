@@ -238,7 +238,7 @@ export async function importRouteProfile(
           id: providerId,
           route_profile_id: profileId,
           name: p.name,
-          type: p.type,
+          type: p.type as any,
           adapter: p.adapter ?? null,
           protocol: p.protocol ?? "openai",
           base_url: p.base_url ?? null,
@@ -391,5 +391,5 @@ function validateExportPayload(data: unknown): ExportedRouteProfile {
     if (!Array.isArray(exp.overrides)) throw new Error("Expert 'overrides' must be an array")
   }
 
-  return d as ExportedRouteProfile
+  return d as unknown as ExportedRouteProfile
 }
