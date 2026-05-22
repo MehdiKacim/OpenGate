@@ -8,11 +8,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "lucide-react": "^1.16.0",
+    "primeicons": "^7.0.0",
+    "primereact": "10.9.7",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "reactflow": "^11.11.0",
-    "@tanstack/react-query": "^5.0.0",
-    "react-router-dom": "^6.0.0"
+    "react-router-dom": "^6.0.0",
+    "react-terminal-ui": "^1.4.0",
+    "reactflow": "^11.11.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

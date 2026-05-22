@@ -1,42 +1,56 @@
 import { useQuery } from "@tanstack/react-query"
+import { Column } from "primereact/column"
+import { DataTable } from "primereact/datatable"
+import { Tag } from "primereact/tag"
 import { apiGet } from "../api/client.js"
+import { RoutingTerminal } from "../studio/RoutingTerminal.js"
+
+interface RoutingEvent {
+  id: string
+  created_at: string
+  expert_name: string
+  detected_keywords?: string[]
+  override_keyword: string | null
+  reason: string
+  status: string | null
+  latency_ms: number | null
+}
 
 export default function Logs() {
-  const { data, isLoading } = useQuery({
+  const logsQuery = useQuery({
     queryKey: ["logs"],
-    queryFn: () => apiGet("/_opengate/logs?limit=50"),
+    queryFn: () => apiGet("/_opengate/logs?limit=80"),
+    refetchInterval: 2500,
   })
+  const events: RoutingEvent[] = logsQuery.data?.data ?? []
 
   return (
-    <div>
-      <h1>Routing Logs</h1>
-      {isLoading && <p>Loading…</p>}
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr style={{ textAlign: "left", borderBottom: "1px solid #374151" }}>
-            <th>Time</th>
-            <th>Expert</th>
-            <th>Keywords</th>
-            <th>Override</th>
-            <th>Reason</th>
-            <th>Status</th>
-            <th>Latency</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data?.data?.map((e: any) => (
-            <tr key={e.id} style={{ borderBottom: "1px solid #1f2937" }}>
-              <td>{new Date(e.created_at).toLocaleTimeString()}</td>
-              <td>{e.expert_name}</td>
-              <td>{e.detected_keywords?.join(", ") || "-"}</td>
-              <td>{e.override_keyword || "-"}</td>
-              <td>{e.reason}</td>
-              <td>{e.status}</td>
-              <td>{e.latency_ms != null ? `${e.latency_ms}ms` : "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="studio-page studio-logs-page">
+      <div className="studio-page-head">
+        <div>
+          <p className="studio-eyebrow">Observability</p>
+          <h1>Routing logs</h1>
+        </div>
+        <Tag value={logsQuery.isFetching ? "refreshing" : "live"} severity={logsQuery.isFetching ? "info" : "success"} />
+      </div>
+      <section className="studio-panel log-terminal-focus">
+        <RoutingTerminal height="248px" />
+      </section>
+      <section className="studio-panel">
+        <div className="studio-panel-title">
+          <strong>Recent routing events</strong>
+          <span>Keyword detection, override selection and provider latency.</span>
+        </div>
+        <DataTable value={events} size="small" loading={logsQuery.isLoading} emptyMessage="No routed requests yet.">
+          <Column header="Time" body={(event: RoutingEvent) => new Date(event.created_at).toLocaleTimeString()} />
+          <Column field="expert_name" header="Expert" />
+          <Column header="Keywords" body={(event: RoutingEvent) => event.detected_keywords?.join(", ") || "-"} />
+          <Column field="override_keyword" header="Override" body={(event: RoutingEvent) => event.override_keyword || "-"} />
+          <Column field="reason" header="Reason" />
+          <Column header="Status" body={(event: RoutingEvent) => <Tag value={event.status || "pending"} severity={event.status === "completed" ? "success" : "secondary"} />} />
+          <Column header="Latency" body={(event: RoutingEvent) => event.latency_ms != null ? `${event.latency_ms}ms` : "-"} />
+        </DataTable>
+      </section>
     </div>
   )
 }

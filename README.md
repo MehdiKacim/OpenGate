@@ -105,7 +105,7 @@ all OAuth providers as unsupported.
 The first recovered OAuth path is Kimi: when a local Kimi access token is
 present, OpenGate forwards OpenAI chat-completions requests to the Kimi coding
 endpoint with the recovered Kimi CLI headers. The historical Kimi refresh/login
-flow still needs a new CLI entry point.
+flow still needs a new login flow in the current app.
 
 ChatGPT/Codex and Gemini now keep their auth boundary explicit, but their
 historical adapters depend on translation/setup flows that are not fully
@@ -124,6 +124,12 @@ an object with a `providers` map. Records may be keyed by the provider id or by
 `adapter:provider-id`; a record carries local credential fields such as
 `accessToken`, optional refresh metadata, provider-specific headers, and an
 optional upstream base URL.
+
+The Providers page can configure that local store for OAuth providers without
+editing route-profile JSON or running a CLI command. Create an OAuth provider,
+choose the `kimi`, `chatgpt`, or `gemini` adapter, then use its OAuth auth panel
+to save or remove local credentials. The UI only reads back auth status flags;
+it never receives stored token values after they are written.
 
 Route profile export/import includes only public provider identity such as:
 
@@ -156,6 +162,9 @@ GET  /_opengate/route-profiles/{slug}/graph-design
 GET  /_opengate/route-profiles/{slug}/graph-runtime
 GET  /_opengate/presets
 POST /_opengate/presets/{id}/copy
+GET  /_opengate/providers/{id}/auth
+POST /_opengate/providers/{id}/auth
+DELETE /_opengate/providers/{id}/auth
 POST /_opengate/playground
 ```
 

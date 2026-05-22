@@ -33,7 +33,7 @@ export class ProviderAuthError extends Error {
 
   constructor(ref: OAuthProviderRef, detail?: string) {
     const hint =
-      "Add a local auth record with `pnpm cli -- auth set --provider=<id>` once an auth command is available, or populate ~/.opengate/auth.json as documented."
+      "Configure local OAuth credentials from the Providers UI, or populate ~/.opengate/auth.json as documented."
     super(
       `OAuth credentials are missing for ${ref.adapter} provider "${ref.name}" (${ref.id}). ${detail ?? hint}`,
     )

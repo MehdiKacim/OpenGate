@@ -1,6 +1,14 @@
 import { Hono } from "hono"
 import type { Kysely } from "kysely"
 import type { Database } from "@opengate/db"
+import {
+  deleteAuthRecord,
+  FileOAuthAuthStore,
+  saveAuthRecord,
+  type OAuthAdapterName,
+  type OAuthAuthRecord,
+  type OAuthProviderRef,
+} from "@opengate/providers"
 import { randomUUID } from "node:crypto"
 
 export interface InternalRouteOptions {
@@ -119,7 +127,7 @@ export function internalRoutes(opts: InternalRouteOptions) {
 
     const providers = await opts.db
       .selectFrom("providers")
-      .select(["id", "name", "type", "protocol", "base_url", "auth_type", "allow_invalid_certificates", "enabled"])
+      .select(["id", "name", "type", "adapter", "protocol", "base_url", "auth_type", "allow_invalid_certificates", "enabled"])
       .where("route_profile_id", "=", profile.id)
       .execute()
 
@@ -181,6 +189,40 @@ export function internalRoutes(opts: InternalRouteOptions) {
 
     await opts.db.updateTable("providers").set(setFields).where("id", "=", id).execute()
     return c.json({ ok: true })
+  })
+
+  // Store provider OAuth secrets outside route profiles.
+  app.get("/providers/:id/auth", async (c) => {
+    const lookup = await getOAuthProviderRef(opts.db, c.req.param("id"))
+    if ("error" in lookup) return c.json({ error: lookup.error }, lookup.status)
+
+    const record = await new FileOAuthAuthStore().load(lookup.ref)
+    return c.json({ provider_id: lookup.ref.id, adapter: lookup.ref.adapter, ...authStatus(record) })
+  })
+
+  app.post("/providers/:id/auth", async (c) => {
+    const lookup = await getOAuthProviderRef(opts.db, c.req.param("id"))
+    if ("error" in lookup) return c.json({ error: lookup.error }, lookup.status)
+
+    const body = await c.req.json().catch(() => null)
+    const record = authRecordFromBody(body)
+    if (!record) {
+      return c.json(
+        { error: "Add at least one access token, refresh token, or session token for this OAuth provider." },
+        400,
+      )
+    }
+
+    await saveAuthRecord(lookup.ref, record)
+    return c.json({ provider_id: lookup.ref.id, adapter: lookup.ref.adapter, ...authStatus(record) })
+  })
+
+  app.delete("/providers/:id/auth", async (c) => {
+    const lookup = await getOAuthProviderRef(opts.db, c.req.param("id"))
+    if ("error" in lookup) return c.json({ error: lookup.error }, lookup.status)
+
+    const deleted = await deleteAuthRecord(lookup.ref)
+    return c.json({ ok: true, deleted })
   })
 
   // Delete provider
@@ -715,4 +757,82 @@ export function internalRoutes(opts: InternalRouteOptions) {
   })
 
   return app
+}
+
+type OAuthLookup =
+  | { ref: OAuthProviderRef }
+  | { error: string; status: 404 | 400 }
+
+async function getOAuthProviderRef(db: Kysely<Database>, id: string): Promise<OAuthLookup> {
+  const provider = await db
+    .selectFrom("providers")
+    .select(["id", "name", "type", "adapter"])
+    .where("id", "=", id)
+    .executeTakeFirst()
+
+  if (!provider) return { error: "Provider not found", status: 404 }
+  if (provider.type !== "oauth") {
+    return { error: "Local auth records are only available for OAuth providers", status: 400 }
+  }
+  if (!isOAuthAdapter(provider.adapter)) {
+    return { error: "OAuth provider adapter must be kimi, chatgpt, or gemini", status: 400 }
+  }
+
+  return {
+    ref: {
+      id: provider.id,
+      name: provider.name,
+      adapter: provider.adapter,
+    },
+  }
+}
+
+function isOAuthAdapter(adapter: string | null): adapter is OAuthAdapterName {
+  return adapter === "kimi" || adapter === "chatgpt" || adapter === "gemini"
+}
+
+function authRecordFromBody(body: unknown): OAuthAuthRecord | undefined {
+  if (!body || typeof body !== "object") return undefined
+
+  const source = body as Record<string, unknown>
+  const record: OAuthAuthRecord = {}
+  const accessToken = cleanString(source.accessToken)
+  const refreshToken = cleanString(source.refreshToken)
+  const sessionToken = cleanString(source.sessionToken)
+  const baseUrl = cleanString(source.baseUrl)
+  const accountId = cleanString(source.accountId)
+  const projectId = cleanString(source.projectId)
+
+  if (accessToken) record.accessToken = accessToken
+  if (refreshToken) record.refreshToken = refreshToken
+  if (sessionToken) record.sessionToken = sessionToken
+  if (baseUrl) record.baseUrl = baseUrl
+  if (accountId) record.accountId = accountId
+  if (projectId) record.projectId = projectId
+
+  if (typeof source.expiresAt === "number" && Number.isFinite(source.expiresAt)) {
+    record.expiresAt = source.expiresAt
+  }
+
+  if (!record.accessToken && !record.refreshToken && !record.sessionToken) return undefined
+  return record
+}
+
+function cleanString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const cleaned = value.trim()
+  return cleaned || undefined
+}
+
+function authStatus(record: OAuthAuthRecord | undefined) {
+  const now = Date.now()
+  return {
+    configured: Boolean(record?.accessToken || record?.refreshToken || record?.sessionToken),
+    has_access_token: Boolean(record?.accessToken),
+    has_refresh_token: Boolean(record?.refreshToken),
+    has_session_token: Boolean(record?.sessionToken),
+    expires_at: record?.expiresAt ?? null,
+    expired: typeof record?.expiresAt === "number" ? record.expiresAt <= now : null,
+    base_url: record?.baseUrl ?? null,
+  }
 }

@@ -44,9 +44,33 @@ export async function saveAuthRecord(
   const current = await readAuthFile(path)
   current.providers[`${ref.adapter}:${ref.id}`] = record
 
+  await writeAuthFile(path, current)
+}
+
+export async function deleteAuthRecord(
+  ref: OAuthProviderRef,
+  path = defaultAuthPath(),
+): Promise<boolean> {
+  const current = await readAuthFile(path)
+  let deleted = false
+
+  for (const key of authRecordKeys(ref)) {
+    if (current.providers[key]) {
+      delete current.providers[key]
+      deleted = true
+    }
+  }
+
+  if (!deleted) return false
+
+  await writeAuthFile(path, current)
+  return true
+}
+
+async function writeAuthFile(path: string, authFile: AuthFile): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`
-  await writeFile(tempPath, JSON.stringify(current, null, 2), { encoding: "utf8", mode: 0o600 })
+  await writeFile(tempPath, JSON.stringify(authFile, null, 2), { encoding: "utf8", mode: 0o600 })
   await rename(tempPath, path)
   await chmod(path, 0o600).catch(() => undefined)
 }
