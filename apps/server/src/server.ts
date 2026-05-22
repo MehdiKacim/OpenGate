@@ -2,7 +2,6 @@ import { Hono } from "hono"
 import { logger } from "hono/logger"
 import { cors } from "hono/cors"
 import { serve as nodeServe } from "@hono/node-server"
-import { serveStatic } from "@hono/node-server/serve-static"
 import { swaggerUI } from "@hono/swagger-ui"
 import type { Kysely } from "kysely"
 import type { Database } from "@opengate/db"
@@ -11,26 +10,16 @@ import { statusRoute } from "./routes/status.js"
 import { routeProfileRoutes } from "./routes/route-profiles.js"
 import { internalRoutes } from "./routes/internal.js"
 import { openApiSpec } from "./openapi.js"
-import { fileURLToPath } from "node:url"
-import { dirname, join } from "node:path"
-import { readFile } from "node:fs/promises"
-import { existsSync } from "node:fs" // Ajout de l'import natif pour checker le dossier
+
+// --- INJECTION DE L'UI EN MÉMOIRE SANS ACCÈS DISQUE ---
+// esbuild va lire ce fichier au build et remplacer cet import par la string pure du HTML.
+// @ts-ignore
+import indexHtml from "../../../web/dist/index.html" with { type: "text" }
 
 export interface ServeOptions {
   port: number
   db: Kysely<Database>
 }
-
-// 1. Chemin classique utilisé en développement local (relatif au fichier source)
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const devStaticRoot = join(__dirname, "../../../web/dist")
-
-// 2. Chemin utilisé une fois packagé dans l'exécutable autonome (relatif au dossier d'exécution)
-const prodStaticRoot = join(process.cwd(), "apps/web/dist")
-
-// 3. Choix intelligent : si le dossier de prod existe (cas du .exe extrait), on le prend.
-// Sinon, on reste sur le comportement de dev.
-const staticRoot = existsSync(prodStaticRoot) ? prodStaticRoot : devStaticRoot
 
 export function serve(opts: ServeOptions) {
   const app = new Hono()
@@ -69,17 +58,10 @@ export function serve(opts: ServeOptions) {
     return c.redirect(newUrl, 307)
   })
 
-  // Static web UI (production build); API routes above take priority
-  app.use("/*", serveStatic({ root: staticRoot }))
-
-  // SPA fallback for React Router
-  app.get("/*", async (c) => {
-    try {
-      const index = await readFile(join(staticRoot, "index.html"), "utf-8")
-      return c.html(index)
-    } catch {
-      return c.notFound()
-    }
+  // SPA fallback global pour React Router : On retourne le HTML stocké dans la RAM.
+  // Les routes API déclarées au-dessus restent bien évidemment prioritaires.
+  app.get("/*", (c) => {
+    return c.html(indexHtml)
   })
 
   const server = nodeServe({
