@@ -50,52 +50,9 @@ jobs:
           name: opengate-windows-x64
           path: opengate-windows-x64.zip
 
-  package-linux:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.9
-          run_install: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-
-      - name: Package Linux artifact
-        run: |
-          mkdir -p artifact/opengate-linux-x64
-          cp -r apps/server/dist artifact/opengate-linux-x64/apps/server/dist
-          cp -r apps/web/dist artifact/opengate-linux-x64/apps/web/dist
-          cp -r packages/*/dist artifact/opengate-linux-x64/packages/
-          cp -r docs artifact/opengate-linux-x64/docs
-          cp README.md artifact/opengate-linux-x64/README.md
-          cp package.json artifact/opengate-linux-x64/package.json
-          cp pnpm-lock.yaml artifact/opengate-linux-x64/pnpm-lock.yaml
-          cp -r packages/db/src/migrations artifact/opengate-linux-x64/migrations
-          cat > artifact/opengate-linux-x64/start.sh << 'EOF'
-          #!/bin/bash
-          pnpm install --prod
-          node apps/server/dist/index.js
-          EOF
-          chmod +x artifact/opengate-linux-x64/start.sh
-          cd artifact && tar -czf ../opengate-linux-x64.tar.gz opengate-linux-x64 && cd ..
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: opengate-linux-x64
-          path: opengate-linux-x64.tar.gz
-
   release:
-    needs: [package-windows, package-linux]
-    runs-on: ubuntu-latest
+    needs: package-windows
+    runs-on: windows-latest
     permissions:
       contents: write
     steps:
@@ -103,6 +60,7 @@ jobs:
 
       - name: Resolve version
         id: version
+        shell: bash
         run: |
           BASE=$(node -p "require('./package.json').version")
           echo "version=${BASE}.${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
@@ -113,17 +71,11 @@ jobs:
           name: opengate-windows-x64
           path: dist-windows
 
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: opengate-linux-x64
-          path: dist-linux
-
-      - name: Rename artifacts with version
+      - name: Rename artifact with version
+        shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           mv dist-windows/opengate-windows-x64.zip "dist-windows/opengate-windows-x64-v${VERSION}.zip"
-          mv dist-linux/opengate-linux-x64.tar.gz "dist-linux/opengate-linux-x64-v${VERSION}.tar.gz"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -132,5 +84,4 @@ jobs:
           name: Release v${{ steps.version.outputs.version }}
           files: |
             dist-windows/*.zip
-            dist-linux/*.tar.gz
           generate_release_notes: true
