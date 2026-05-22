@@ -128,6 +128,9 @@ export default function Graph() {
   const [mode, setMode] = useState<Mode>("design")
   const [slug, setSlug] = useState("default")
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [creatingExpert, setCreatingExpert] = useState(false)
+  const [creatingKeywordFor, setCreatingKeywordFor] = useState<string | null>(null)
+  const [creatingOverrideFor, setCreatingOverrideFor] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const profilesQuery = useQuery({
@@ -383,6 +386,22 @@ export default function Graph() {
     mutationFn: (id: string) => apiDelete(`/keyword-overrides/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
   })
+  const updateProviderMut = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/providers/${id}`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }) },
+  })
+  const deleteProviderMut = useMutation({
+    mutationFn: (id: string) => apiDelete(`/providers/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); qc.invalidateQueries({ queryKey: ["resolved", slug] }); setSelectedNode(null) },
+  })
+  const updateModelMut = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: unknown }) => apiPatch(`/provider-models/${id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["graph-design", slug] }),
+  })
+  const deleteModelMut = useMutation({
+    mutationFn: (id: string) => apiDelete(`/provider-models/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["graph-design", slug] }); setSelectedNode(null) },
+  })
 
   const isDesign = mode === "design"
   const nodes = isDesign ? designNodes : runtimeNodes
@@ -480,15 +499,16 @@ export default function Graph() {
               <div style={{ display: "grid", gap: 12 }}>
                 <div style={{ fontSize: 13, color: "#9ca3af" }}>Name: {designQuery.data?.profile?.name ?? "—"}</div>
                 <div style={{ fontSize: 13, color: "#9ca3af" }}>Experts: {(designQuery.data?.experts ?? []).length}</div>
-                <button onClick={() => {
-                  const name = prompt("Expert name (unique identifier):")
-                  if (!name) return
-                  const displayName = prompt("Display name (optional):") || name
-                  const ps = designQuery.data?.providers ?? []
-                  const ms = designQuery.data?.models ?? []
-                  if (!ps.length || !ms.length) { alert("Create a provider and model first."); return }
-                  createExpertMut.mutate({ name, display_name: displayName, provider_id: ps[0].id, model_id: ms[0].id, system_prompt: "" })
-                }} style={{ padding: "8px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13 }}>+ Add Expert</button>
+                {!creatingExpert ? (
+                  <button onClick={() => setCreatingExpert(true)} style={{ padding: "8px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13 }}>+ Add Expert</button>
+                ) : (
+                  <CreateExpertForm
+                    providers={designQuery.data?.providers ?? []}
+                    models={designQuery.data?.models ?? []}
+                    onCreate={(body) => { createExpertMut.mutate(body, { onSuccess: () => setCreatingExpert(false) }) }}
+                    onCancel={() => setCreatingExpert(false)}
+                  />
+                )}
               </div>
             )}
 
@@ -499,8 +519,14 @@ export default function Graph() {
                 models={designQuery.data?.models ?? []}
                 onSave={(body) => updateExpertMut.mutate({ id: selectedNode.data.id, body }, { onSuccess: () => setSelectedNode(null) })}
                 onDelete={(id) => { if (confirm("Delete this expert?")) deleteExpertMut.mutate(id) }}
-                onAddKeyword={(expertId) => { const kw = prompt("Keyword:"); if (!kw) return; createKeywordMut.mutate({ expertId, body: { keyword: kw } }) }}
-                onAddOverride={(expertId) => { const ps = designQuery.data?.providers ?? []; const ms = designQuery.data?.models ?? []; if (!ps.length || !ms.length) { alert("Create a provider and model first."); return } const kw = prompt("Override keyword:"); if (!kw) return; createOverrideMut.mutate({ expertId, body: { keyword: kw, provider_id: ps[0].id, model_id: ms[0].id } }) }}
+                onAddKeyword={(expertId) => setCreatingKeywordFor(expertId)}
+                onAddOverride={(expertId) => setCreatingOverrideFor(expertId)}
+                creatingKeyword={creatingKeywordFor === selectedNode.data.id}
+                creatingOverride={creatingOverrideFor === selectedNode.data.id}
+                onCreateKeyword={(expertId, body) => createKeywordMut.mutate({ expertId, body }, { onSuccess: () => setCreatingKeywordFor(null) })}
+                onCreateOverride={(expertId, body) => createOverrideMut.mutate({ expertId, body }, { onSuccess: () => setCreatingOverrideFor(null) })}
+                onCancelCreateKeyword={() => setCreatingKeywordFor(null)}
+                onCancelCreateOverride={() => setCreatingOverrideFor(null)}
                 isPending={updateExpertMut.isPending}
               />
             )}
@@ -525,10 +551,22 @@ export default function Graph() {
               />
             )}
 
-            {(selectedNode.type === "provider" || selectedNode.type === "model") && (
-              <div style={{ fontSize: 13, color: "#e5e7eb" }}>
-                <pre style={{ background: "#1f2937", padding: 10, borderRadius: 6, overflow: "auto" }}>{JSON.stringify(selectedNode.data, null, 2)}</pre>
-              </div>
+            {selectedNode.type === "provider" && selectedNode.data?.id && (
+              <ProviderPanel
+                provider={(designQuery.data?.providers ?? []).find((p: any) => p.id === selectedNode.data.id)!}
+                onSave={(body) => updateProviderMut.mutate({ id: selectedNode.data.id, body }, { onSuccess: () => setSelectedNode(null) })}
+                onDelete={(id) => { if (confirm("Delete this provider?")) deleteProviderMut.mutate(id) }}
+                isPending={updateProviderMut.isPending}
+              />
+            )}
+
+            {selectedNode.type === "model" && selectedNode.data?.id && (
+              <ModelPanel
+                model={(designQuery.data?.models ?? []).find((m: any) => m.id === selectedNode.data.id)!}
+                onSave={(body) => updateModelMut.mutate({ id: selectedNode.data.id, body }, { onSuccess: () => setSelectedNode(null) })}
+                onDelete={(id) => { if (confirm("Delete this model?")) deleteModelMut.mutate(id) }}
+                isPending={updateModelMut.isPending}
+              />
             )}
           </div>
         )}
@@ -537,8 +575,8 @@ export default function Graph() {
   )
 }
 
-function ExpertPanel({ expert, providers, models, onSave, onDelete, onAddKeyword, onAddOverride, isPending }: {
-  expert: any; providers: any[]; models: any[]; onSave: (body: Record<string, unknown>) => void; onDelete: (id: string) => void; onAddKeyword: (id: string) => void; onAddOverride: (id: string) => void; isPending: boolean
+function ExpertPanel({ expert, providers, models, onSave, onDelete, onAddKeyword, onAddOverride, creatingKeyword, creatingOverride, onCreateKeyword, onCreateOverride, onCancelCreateKeyword, onCancelCreateOverride, isPending }: {
+  expert: any; providers: any[]; models: any[]; onSave: (body: Record<string, unknown>) => void; onDelete: (id: string) => void; onAddKeyword: (id: string) => void; onAddOverride: (id: string) => void; creatingKeyword: boolean; creatingOverride: boolean; onCreateKeyword: (id: string, body: any) => void; onCreateOverride: (id: string, body: any) => void; onCancelCreateKeyword: () => void; onCancelCreateOverride: () => void; isPending: boolean
 }) {
   const [draft, setDraft] = useState<Record<string, any>>({ ...expert })
   const [dirty, setDirty] = useState(false)
@@ -578,6 +616,18 @@ function ExpertPanel({ expert, providers, models, onSave, onDelete, onAddKeyword
         <button onClick={() => onSave({ name: draft.name, display_name: draft.display_name, provider_id: draft.provider_id, model_id: draft.model_id, system_prompt: draft.system_prompt, temperature: draft.temperature, max_tokens: draft.max_tokens, expose_as_model: (draft.expose_as_model ?? 1) === 1, enabled: (draft.enabled ?? 1) === 1 })} disabled={!canSave || isPending} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: canSave ? "#2563eb" : "#374151", color: "#fff", cursor: canSave ? "pointer" : "not-allowed" }}>{isPending ? "Saving…" : "Save"}</button>
         <button onClick={() => onDelete(expert.id)} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#7f1d1d", color: "#fecaca", cursor: "pointer" }}>Delete</button>
       </div>
+      {creatingKeyword && (
+        <div style={{ borderTop: "1px solid #374151", paddingTop: 12 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>New Keyword</div>
+          <CreateKeywordForm onCreate={(body) => onCreateKeyword(expert.id, body)} onCancel={onCancelCreateKeyword} />
+        </div>
+      )}
+      {creatingOverride && (
+        <div style={{ borderTop: "1px solid #374151", paddingTop: 12 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>New Override</div>
+          <CreateOverrideForm providers={providers} models={models} onCreate={(body) => onCreateOverride(expert.id, body)} onCancel={onCancelCreateOverride} />
+        </div>
+      )}
       <div style={{ borderTop: "1px solid #374151", paddingTop: 12, display: "flex", gap: 8 }}>
         <button onClick={() => onAddKeyword(expert.id)} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#064e3b", color: "#6ee7b7", cursor: "pointer", fontSize: 12 }}>+ Keyword</button>
         <button onClick={() => onAddOverride(expert.id)} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#7f1d1d", color: "#fecaca", cursor: "pointer", fontSize: 12 }}>+ Override</button>
@@ -637,3 +687,137 @@ function OverridePanel({ override, providers, models, onSave, onDelete, isPendin
 
 const inputS: React.CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #374151", background: "#1f2937", color: "#e5e7eb", fontSize: 14, boxSizing: "border-box" }
 const labelS: React.CSSProperties = { fontSize: 12, color: "#9ca3af", marginBottom: 4 }
+
+function CreateExpertForm({ providers, models, onCreate, onCancel }: { providers: any[]; models: any[]; onCreate: (body: any) => void; onCancel: () => void }) {
+  const [name, setName] = useState("")
+  const [displayName, setDisplayName] = useState("")
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? "")
+  const [modelId, setModelId] = useState("")
+  const [error, setError] = useState("")
+  const filtered = models.filter((m) => m.provider_id === providerId)
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <label><div style={labelS}>Name *</div><input value={name} onChange={(e) => setName(e.target.value)} style={inputS} placeholder="unique-id" /></label>
+      <label><div style={labelS}>Display name</div><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} style={inputS} /></label>
+      <label><div style={labelS}>Provider</div>
+        <select value={providerId} onChange={(e) => { setProviderId(e.target.value); setModelId("") }} style={inputS}>
+          {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+        </select>
+      </label>
+      <label><div style={labelS}>Model</div>
+        <select value={modelId} onChange={(e) => setModelId(e.target.value)} style={inputS}>
+          <option value="">Select model</option>
+          {filtered.map((m) => (<option key={m.id} value={m.id}>{m.display_name || m.model_id}</option>))}
+        </select>
+      </label>
+      {error && <div style={{ fontSize: 12, color: "#ef4444" }}>{error}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => {
+          if (!name.trim()) { setError("Name is required"); return }
+          if (!modelId) { setError("Model is required"); return }
+          onCreate({ name: name.trim(), display_name: displayName.trim() || name.trim(), provider_id: providerId, model_id: modelId, system_prompt: "" })
+        }} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer" }}>Create</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#374151", color: "#e5e7eb", cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function CreateKeywordForm({ onCreate, onCancel }: { onCreate: (body: any) => void; onCancel: () => void }) {
+  const [keyword, setKeyword] = useState("")
+  const [error, setError] = useState("")
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <label><div style={labelS}>Keyword *</div><input value={keyword} onChange={(e) => setKeyword(e.target.value)} style={inputS} placeholder="e.g. code-review" /></label>
+      {error && <div style={{ fontSize: 12, color: "#ef4444" }}>{error}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => {
+          if (!keyword.trim()) { setError("Keyword is required"); return }
+          onCreate({ keyword: keyword.trim() })
+        }} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer" }}>Create</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#374151", color: "#e5e7eb", cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function ProviderPanel({ provider, onSave, onDelete, isPending }: { provider: any; onSave: (body: Record<string, unknown>) => void; onDelete: (id: string) => void; isPending: boolean }) {
+  const [draft, setDraft] = useState<Record<string, any>>({ ...provider })
+  const [dirty, setDirty] = useState(false)
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <label><div style={labelS}>Name</div><input value={draft.name ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, name: e.target.value })); setDirty(true) }} style={inputS} /></label>
+      <label><div style={labelS}>Type</div>
+        <select value={draft.type ?? "proxy"} onChange={(e) => { setDraft((d) => ({ ...d, type: e.target.value })); setDirty(true) }} style={inputS}>
+          <option value="proxy">proxy</option>
+          <option value="static">static</option>
+          <option value="oauth">oauth</option>
+        </select>
+      </label>
+      <label><div style={labelS}>Base URL</div><input value={draft.base_url ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, base_url: e.target.value })); setDirty(true) }} style={inputS} /></label>
+      <label><div style={labelS}>Auth type</div><input value={draft.auth_type ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, auth_type: e.target.value })); setDirty(true) }} style={inputS} /></label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+        <input type="checkbox" checked={(draft.allow_invalid_certificates ?? 0) === 1} onChange={(e) => { setDraft((d) => ({ ...d, allow_invalid_certificates: e.target.checked ? 1 : 0 })); setDirty(true) }} /> Allow invalid certificates
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+        <input type="checkbox" checked={(draft.enabled ?? 1) === 1} onChange={(e) => { setDraft((d) => ({ ...d, enabled: e.target.checked ? 1 : 0 })); setDirty(true) }} /> Enabled
+      </label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onSave({ name: draft.name, type: draft.type, base_url: draft.base_url, auth_type: draft.auth_type, allow_invalid_certificates: (draft.allow_invalid_certificates ?? 0) === 1, enabled: (draft.enabled ?? 1) === 1 })} disabled={!dirty || isPending} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: dirty ? "#2563eb" : "#374151", color: "#fff", cursor: dirty ? "pointer" : "not-allowed" }}>{isPending ? "Saving…" : "Save"}</button>
+        <button onClick={() => onDelete(provider.id)} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#7f1d1d", color: "#fecaca", cursor: "pointer" }}>Delete</button>
+      </div>
+    </div>
+  )
+}
+
+function ModelPanel({ model, onSave, onDelete, isPending }: { model: any; onSave: (body: Record<string, unknown>) => void; onDelete: (id: string) => void; isPending: boolean }) {
+  const [draft, setDraft] = useState<Record<string, any>>({ ...model })
+  const [dirty, setDirty] = useState(false)
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <label><div style={labelS}>Model ID</div><input value={draft.model_id ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, model_id: e.target.value })); setDirty(true) }} style={inputS} /></label>
+      <label><div style={labelS}>Display name</div><input value={draft.display_name ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, display_name: e.target.value })); setDirty(true) }} style={inputS} /></label>
+      <label><div style={labelS}>Context window</div><input type="number" value={draft.context_window ?? ""} onChange={(e) => { setDraft((d) => ({ ...d, context_window: e.target.value === "" ? null : Number(e.target.value) })); setDirty(true) }} style={inputS} /></label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+        <input type="checkbox" checked={(draft.enabled ?? 1) === 1} onChange={(e) => { setDraft((d) => ({ ...d, enabled: e.target.checked ? 1 : 0 })); setDirty(true) }} /> Enabled
+      </label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => onSave({ model_id: draft.model_id, display_name: draft.display_name, context_window: draft.context_window, enabled: (draft.enabled ?? 1) === 1 })} disabled={!dirty || isPending} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: dirty ? "#2563eb" : "#374151", color: "#fff", cursor: dirty ? "pointer" : "not-allowed" }}>{isPending ? "Saving…" : "Save"}</button>
+        <button onClick={() => onDelete(model.id)} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#7f1d1d", color: "#fecaca", cursor: "pointer" }}>Delete</button>
+      </div>
+    </div>
+  )
+}
+
+function CreateOverrideForm({ providers, models, onCreate, onCancel }: { providers: any[]; models: any[]; onCreate: (body: any) => void; onCancel: () => void }) {
+  const [keyword, setKeyword] = useState("")
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? "")
+  const [modelId, setModelId] = useState("")
+  const [error, setError] = useState("")
+  const filtered = models.filter((m) => m.provider_id === providerId)
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <label><div style={labelS}>Keyword *</div><input value={keyword} onChange={(e) => setKeyword(e.target.value)} style={inputS} placeholder="e.g. urgent" /></label>
+      <label><div style={labelS}>Provider</div>
+        <select value={providerId} onChange={(e) => { setProviderId(e.target.value); setModelId("") }} style={inputS}>
+          {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+        </select>
+      </label>
+      <label><div style={labelS}>Model</div>
+        <select value={modelId} onChange={(e) => setModelId(e.target.value)} style={inputS}>
+          <option value="">Select model</option>
+          {filtered.map((m) => (<option key={m.id} value={m.id}>{m.display_name || m.model_id}</option>))}
+        </select>
+      </label>
+      {error && <div style={{ fontSize: 12, color: "#ef4444" }}>{error}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => {
+          if (!keyword.trim()) { setError("Keyword is required"); return }
+          if (!modelId) { setError("Model is required"); return }
+          onCreate({ keyword: keyword.trim(), provider_id: providerId, model_id: modelId })
+        }} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer" }}>Create</button>
+        <button onClick={onCancel} style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", background: "#374151", color: "#e5e7eb", cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  )
+}
