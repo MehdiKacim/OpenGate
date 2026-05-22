@@ -15,3 +15,19 @@ export async function apiPost(path: string, body: unknown) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+export async function apiPatch(path: string, body: unknown) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+export async function apiDelete(path: string) {
+  const res = await fetch(`${API_BASE}${path}`, { method: "DELETE" })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}

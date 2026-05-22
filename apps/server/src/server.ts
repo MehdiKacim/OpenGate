@@ -33,16 +33,23 @@ export function serve(opts: ServeOptions) {
   app.route("/c/:profileSlug/v1", routeProfileRoutes(opts))
 
   app.all("/v1/*", async (c) => {
-    const env = c.env as Record<string, unknown> | undefined
-    const defaultSlug = env?.defaultProfileSlug as string | undefined
-    if (!defaultSlug) {
+    const setting = await opts.db
+      .selectFrom("settings")
+      .select("value_json")
+      .where("key", "=", "default_profile_slug")
+      .executeTakeFirst()
+
+    const defaultSlug = setting ? JSON.parse(setting.value_json) : undefined
+    if (!defaultSlug || typeof defaultSlug !== "string") {
       return c.json(
         { error: "No default route profile configured. Use /c/{profileSlug}/v1." },
         404,
       )
     }
+
     const url = new URL(c.req.url)
-    const newUrl = `/c/${defaultSlug}${url.pathname}`
+    const rest = url.pathname.replace(/^\/v1/, "")
+    const newUrl = `/c/${defaultSlug}/v1${rest}${url.search}`
     return c.redirect(newUrl, 307)
   })
 

@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { randomUUID } from "node:crypto"
 import type { Kysely } from "kysely"
 import type { Database } from "@opengate/db"
-import { createStaticProvider } from "@opengate/providers"
+import { createProviderAdapter } from "@opengate/providers"
 import { resolveRouting } from "@opengate/routing"
 
 export interface RouteProfileRouteOptions {
@@ -124,21 +124,54 @@ export function routeProfileRoutes(opts: RouteProfileRouteOptions) {
       })
       .execute()
 
-    // Fetch expert for system prompt and provider details
+    // Load the resolved provider and model
+    const selectedProvider = await opts.db
+      .selectFrom("providers")
+      .select([
+        "id",
+        "name",
+        "type",
+        "adapter",
+        "protocol",
+        "base_url",
+        "auth_type",
+        "allow_invalid_certificates",
+        "enabled",
+      ])
+      .where("id", "=", routing.selectedProviderId)
+      .executeTakeFirst()
+
+    const selectedModel = await opts.db
+      .selectFrom("provider_models")
+      .select(["id", "provider_id", "model_id", "display_name", "enabled"])
+      .where("id", "=", routing.selectedModelId)
+      .executeTakeFirst()
+
+    if (!selectedProvider || !selectedModel) {
+      await opts.db
+        .updateTable("requests")
+        .set({ status: "error", finished_at: new Date().toISOString(), error: `Resolved provider or model not found` })
+        .where("id", "=", reqId)
+        .execute()
+      return c.json({ error: "Resolved provider or model not found" }, 500)
+    }
+
+    if (selectedProvider.enabled !== 1 || selectedModel.enabled !== 1) {
+      await opts.db
+        .updateTable("requests")
+        .set({ status: "error", finished_at: new Date().toISOString(), error: `Resolved provider or model is disabled` })
+        .where("id", "=", reqId)
+        .execute()
+      return c.json({ error: "Resolved provider or model is disabled" }, 400)
+    }
+
+    // Load expert for system prompt and generation parameters
     const expert = await opts.db
       .selectFrom("experts")
-      .innerJoin("providers", "providers.id", "experts.provider_id")
-      .innerJoin("provider_models", "provider_models.id", "experts.model_id")
-      .select([
-        "experts.system_prompt",
-        "experts.temperature",
-        "experts.max_tokens",
-        "providers.type as provider_type",
-        "provider_models.model_id",
-      ])
-      .where("experts.route_profile_id", "=", profile.id)
-      .where("experts.name", "=", modelName)
-      .where("experts.enabled", "=", 1)
+      .select(["system_prompt", "temperature", "max_tokens"])
+      .where("route_profile_id", "=", profile.id)
+      .where("name", "=", modelName)
+      .where("enabled", "=", 1)
       .executeTakeFirst()
 
     if (!expert) {
@@ -159,7 +192,7 @@ export function routeProfileRoutes(opts: RouteProfileRouteOptions) {
     }
 
     const openaiReq = {
-      model: expert.model_id,
+      model: selectedModel.model_id,
       messages: [
         ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
         ...(body.messages || []),
@@ -169,12 +202,12 @@ export function routeProfileRoutes(opts: RouteProfileRouteOptions) {
       max_tokens: expert.max_tokens ?? body.max_tokens,
     }
 
-    // For MVP, always use static provider. In future, resolve provider by type.
-    const provider = createStaticProvider()
+    // Instantiate provider adapter from resolved provider row
+    const provider = createProviderAdapter(selectedProvider)
 
     const ctx = {
       reqId,
-      providerId: routing.selectedProviderId,
+      providerId: selectedProvider.id,
       routeProfileId: profile.id,
       childLogger: () => ({
         info: () => {},

@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm docs
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact/opengate-windows-x64
+          Copy-Item -Recurse apps/server/dist artifact/opengate-windows-x64/apps/server/dist
+          Copy-Item -Recurse apps/web/dist artifact/opengate-windows-x64/apps/web/dist
+          Copy-Item -Recurse packages/*/dist artifact/opengate-windows-x64/packages
+          Copy-Item -Recurse docs artifact/opengate-windows-x64/docs
+          Copy-Item README.md artifact/opengate-windows-x64/README.md
+          Copy-Item package.json artifact/opengate-windows-x64/package.json
+          Copy-Item pnpm-lock.yaml artifact/opengate-windows-x64/pnpm-lock.yaml
+          Copy-Item -Recurse packages/db/src/migrations artifact/opengate-windows-x64/migrations
+          $start = @"
+          # Start OpenGate on Windows
+          pnpm install --prod
+          node apps/server/dist/index.js
+          "@
+          Set-Content -Path artifact/opengate-windows-x64/START.ps1 -Value $start
+          Compress-Archive -Path artifact/opengate-windows-x64 -DestinationPath opengate-windows-x64.zip
+
+      - name: Package artifact (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p artifact/opengate-linux-x64
+          cp -r apps/server/dist artifact/opengate-linux-x64/apps/server/dist
+          cp -r apps/web/dist artifact/opengate-linux-x64/apps/web/dist
+          cp -r packages/*/dist artifact/opengate-linux-x64/packages/
+          cp -r docs artifact/opengate-linux-x64/docs
+          cp README.md artifact/opengate-linux-x64/README.md
+          cp package.json artifact/opengate-linux-x64/package.json
+          cp pnpm-lock.yaml artifact/opengate-linux-x64/pnpm-lock.yaml
+          cp -r packages/db/src/migrations artifact/opengate-linux-x64/migrations
+          cat > artifact/opengate-linux-x64/start.sh << 'EOF'
+          #!/bin/bash
+          # Start OpenGate on Linux
+          pnpm install --prod
+          node apps/server/dist/index.js
+          EOF
+          chmod +x artifact/opengate-linux-x64/start.sh
+          cd artifact && tar -czf ../opengate-linux-x64.tar.gz opengate-linux-x64 && cd ..
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: opengate-windows-x64
+          path: opengate-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: opengate-linux-x64
+          path: opengate-linux-x64.tar.gz

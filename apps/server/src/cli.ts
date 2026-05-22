@@ -5,8 +5,8 @@ import { migrateToLatest, seedDefaults } from "@opengate/db"
 import { serve } from "./server.js"
 import { createLogger } from "./logger.js"
 import { existsSync } from "node:fs"
-import { writeFileSync, mkdirSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
+import { join, resolve, basename } from "node:path"
 
 const log = createLogger("cli")
 const VERSION = "0.1.0"
@@ -54,8 +54,12 @@ async function main() {
     console.log(`Database: ${config.databasePath}`)
     const markerPath = join(resolve("."), ".opengate", "profile.json")
     if (existsSync(markerPath)) {
-      const marker = JSON.parse(require("node:fs").readFileSync(markerPath, "utf-8"))
-      console.log(`Project binding: ${marker.profileSlug}`)
+      const marker = JSON.parse(readFileSync(markerPath, "utf-8"))
+      const slug = marker.routeProfile ?? marker.profileSlug
+      console.log(`Project binding: ${slug ?? "unknown"}`)
+      if (marker.baseUrl) {
+        console.log(`Base URL: ${marker.baseUrl}`)
+      }
     } else {
       console.log("No project binding found. Run `opengate init` to bind.")
     }
@@ -93,7 +97,7 @@ async function main() {
     const config = getConfig()
     const db = createDatabaseConnection(config.databasePath)
     await migrateToLatest(db)
-    const data = JSON.parse(require("node:fs").readFileSync(filePath, "utf-8"))
+    const data = JSON.parse(readFileSync(filePath, "utf-8"))
     console.log("Import validation passed (not yet implemented transactionally).")
     console.log(JSON.stringify(data, null, 2))
     return
@@ -106,26 +110,76 @@ async function main() {
     await seedDefaults(db)
 
     const cwd = resolve(".")
+    const projectName = basename(cwd)
+
     const profiles = await db
       .selectFrom("route_profiles")
-      .select(["slug", "name"])
+      .select(["id", "slug", "name"])
       .execute()
 
-    console.log("Available route profiles:")
-    for (const p of profiles) {
-      console.log(`  ${p.slug} — ${p.name}`)
+    if (profiles.length === 0) {
+      console.error("No route profiles found. Ensure seeding succeeded.")
+      process.exit(1)
     }
 
-    const chosenSlug = profiles[0]?.slug || "default"
+    // Pick first non-default profile or the only one
+    const chosen =
+      profiles.find((p) => p.slug !== "default") ?? profiles[0]
+
     const markerDir = join(cwd, ".opengate")
     mkdirSync(markerDir, { recursive: true })
+
+    const baseUrl = `http://localhost:${config.port}/c/${chosen.slug}/v1`
+
+    const marker = {
+      schemaVersion: 1,
+      routeProfile: chosen.slug,
+      baseUrl,
+      projectName,
+      createdAt: new Date().toISOString(),
+    }
+
     writeFileSync(
       join(markerDir, "profile.json"),
-      JSON.stringify({ profileSlug: chosenSlug }, null, 2),
+      JSON.stringify(marker, null, 2),
     )
 
-    console.log(`Created .opengate/profile.json with profile: ${chosenSlug}`)
-    console.log(`Client base URL: http://localhost:${config.port}/c/${chosenSlug}/v1`)
+    // Upsert project binding
+    const existingBinding = await db
+      .selectFrom("project_bindings")
+      .select("id")
+      .where("project_root", "=", cwd)
+      .executeTakeFirst()
+
+    if (existingBinding) {
+      await db
+        .updateTable("project_bindings")
+        .set({
+          route_profile_id: chosen.id,
+          project_name: projectName,
+          marker_path: join(markerDir, "profile.json"),
+          updated_at: new Date().toISOString(),
+        })
+        .where("id", "=", existingBinding.id)
+        .execute()
+    } else {
+      const { randomUUID } = await import("node:crypto")
+      await db
+        .insertInto("project_bindings")
+        .values({
+          id: randomUUID(),
+          route_profile_id: chosen.id,
+          project_root: cwd,
+          project_name: projectName,
+          marker_path: join(markerDir, "profile.json"),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .execute()
+    }
+
+    console.log(`Created .opengate/profile.json`)
+    console.log(`Client base URL: ${baseUrl}`)
     return
   }
 
