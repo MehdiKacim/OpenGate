@@ -1,113 +1,135 @@
-name: CI and Release
+name: CI / CD Build & Release
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build-and-test:
+  build-and-document:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          version: 9.15.9
-          run_install: false
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20.x
-          cache: pnpm
+          node-version: 20
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm run docs
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
 
-      # Étape Doc : On sauvegarde le dossier généré par tes scripts (OpenAPI / DB Docs)
-      - uses: actions/upload-artifact@v4
+      - name: Get pnpm store directory
+        shell: bash
+        id: pnpm-cache
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Build
+        run: pnpm run build
+
+      - name: Generate Documentation
+        run: pnpm run docs
+
+      # Étape clé : Sauvegarde de la documentation technique générée + les specs d'architecture
+      - name: Upload Documentation Raw Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: opengate-docs-raw
-          path: docs/
+          path: |
+            specs/
+            docs/
+          if-no-files-found: ignore
 
-  package-windows:
-    needs: build-and-test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Run Packaging Script (Windows)
+        run: node scripts/package-windows.js
 
-      - uses: pnpm/action-setup@v4
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
         with:
-          version: 9.15.9
-          run_install: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      
-      # Exécute ton script de packaging (génère opengate-windows-x64.zip à la racine)
-      - run: pnpm package:windows
-
-      # On uploade le zip généré directement par ton script
-      - uses: actions/upload-artifact@v4
-        with:
-          name: opengate-windows-zip
+          name: opengate-windows-binary
           path: opengate-windows-x64.zip
 
   release:
-    needs: [build-and-test, package-windows]
+    needs: build-and-document
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Resolve version
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Détermination d'une version unique basée sur le nombre de commits
+      - name: Generate Version Number
         id: version
         shell: bash
         run: |
-          BASE=$(node -p "require('./package.json').version")
-          echo "version=${BASE}.${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          echo "version=0.1.0.${BUILD_NUMBER}" >> $GITHUB_OUTPUT
 
-      # On télécharge le zip de l'application Windows
-      - name: Download Windows ZIP
+      - name: Download Windows Binary Artifact
         uses: actions/download-artifact@v4
         with:
-          name: opengate-windows-zip
-          path: .
+          name: opengate-windows-binary
 
-      # On télécharge les artefacts bruts de la doc
-      - name: Download Docs
+      - name: Download Docs Artifact
         uses: actions/download-artifact@v4
         with:
           name: opengate-docs-raw
           path: temp-docs
 
-      # On renomme l'application et on compresse proprement la doc
       - name: Prepare assets
         shell: bash
+        id: assets
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p final-assets
           
-          # Renommer le zip Windows avec la version de la CI
-          mv opengate-windows-x64.zip "final-assets/opengate-windows-x64-v${VERSION}.zip"
+          # Renommer le zip Windows avec le tag de la CI
+          if [ -f opengate-windows-x64.zip ]; then
+            mv opengate-windows-x64.zip "final-assets/opengate-windows-x64-v${VERSION}.zip"
+          fi
           
-          # Zipper le dossier complet de la documentation
+          # Compression du dossier complet de documentation avec 7z (natif sur GitHub Windows)
           cd temp-docs
-          zip -r "../final-assets/opengate-docs-v${VERSION}.zip" ./*
+          7z a "../final-assets/opengate-docs-v${VERSION}.zip" ./*
           cd ..
+          
+          echo "tag_name=v${VERSION}" >> $GITHUB_OUTPUT
 
-      # Publication finale des deux archives ZIP sur GitHub Releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.assets.outputs.tag_name }}
+          name: Release ${{ steps.assets.outputs.tag_name }}
+          body: |
+            Automated production build for OpenGate.
+            
+            ### Artifacts inclus :
+            * `opengate-windows-x64-v${{ steps.version.outputs.version }}.zip` : Application compilée (avec fallback autonome).
+            * `opengate-docs-v${{ steps.version.outputs.version }}.zip` : Spécifications techniques d'architecture, ADRs et schémas générés.
+          draft: false
+          prerelease: false
           files: |
-            final-assets/*.zip
-          generate_release_notes: true
+            final-assets/opengate-windows-x64-v${{ steps.version.outputs.version }}.zip
+            final-assets/opengate-docs-v${{ steps.version.outputs.version }}.zip
