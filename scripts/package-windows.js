@@ -26,9 +26,8 @@ function buildExecutable() {
   console.log("\n--- 1. Bundling de la CLI et du Serveur via esbuild ---")
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  // Nettoyage du --define problématique sous Windows.
-  // La résolution du dossier statique se fait désormais directement au runtime.
-  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js"`)
+  // Ajout de --format=esm pour préserver import.meta.url nécessaire à la détection des dossiers d'assets
+  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --format=esm --minify --outfile="${outDir}/dist-cli.js"`)
 
   console.log("\n--- 2. Préparation du moteur d'exécution Node.js natif ---")
   const nodeExePath = join(outDir, "node.exe")
@@ -47,7 +46,8 @@ function buildExecutable() {
   console.log("\n--- 4. Injection du code à l'intérieur du binaire ---")
   const finalExe = join(outDir, "opengate.exe")
   
-  sh(`pnpm dlx postject "${nodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
+  // Utilisation du flag correct --sentinel-fuse pour l'injection Windows PE
+  sh(`pnpm dlx postject "${nodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel-fuse "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
   
   import('node:fs').then(fs => fs.renameSync(nodeExePath, finalExe))
 
