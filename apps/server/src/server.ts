@@ -14,8 +14,8 @@ import { openApiSpec } from "./openapi.js"
 export interface ServeOptions {
   port: number
   db: Kysely<Database>
-  // Callback optionnel permettant d'injecter un gestionnaire d'UI personnalisé (ex: SEA)
-  onSpaFallback?: (c: any) => string | Promise<string>
+  // Pre-inlined SPA HTML string for packaged/SEA builds
+  spaHtml?: string
 }
 
 export function serve(opts: ServeOptions) {
@@ -50,11 +50,10 @@ export function serve(opts: ServeOptions) {
     return c.redirect(`/c/${defaultSlug}/v1${rest}${url.search}`, 307)
   })
 
-  // Gestion du SPA Fallback
+  // SPA Fallback
   app.get("/*", async (c) => {
-    if (opts.onSpaFallback) {
-      const html = await opts.onSpaFallback(c)
-      return c.html(html)
+    if (opts.spaHtml) {
+      return c.html(opts.spaHtml)
     }
     return c.text("OpenGate API is running. UI is only available in packaged production mode.", 200)
   })
