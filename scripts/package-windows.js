@@ -26,9 +26,9 @@ function buildExecutable() {
   console.log("\n--- 1. Bundling de la CLI et du Serveur via esbuild ---")
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  // Utilisation de pnpm dlx pour garantir que la CI Windows trouve et exécute esbuild correctement.
-  // On fige statiquement la variable staticRoot pour cibler le dossier local apps/web/dist.
-  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js" --define:staticRoot="join(process.cwd(), 'apps/web/dist')"`)
+  // Nettoyage du --define problématique sous Windows.
+  // La résolution du dossier statique se fait désormais directement au runtime.
+  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js"`)
 
   console.log("\n--- 2. Préparation du moteur d'exécution Node.js natif ---")
   const nodeExePath = join(outDir, "node.exe")
