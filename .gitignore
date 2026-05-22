@@ -34,3 +34,13 @@ coverage/
 
 # OpenGate runtime data (legacy compatibility)
 .opengate/
+
+# Generated docs (regenerable)
+docs/
+
+# Packaging artifacts
+artifact/
+*.zip
+*.tar.gz
+*.exe
+*.tgz

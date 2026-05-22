@@ -60,7 +60,7 @@ pnpm start
 
 ## Windows artifact
 
-Download `opengate-windows-x64.zip` from the release artifacts, extract, and run:
+Download `opengate-windows-x64.zip` from the [GitHub Releases](https://github.com/mkacim/opengate/releases), extract, and run:
 
 ```powershell
 .\opengate.exe
@@ -90,6 +90,10 @@ CLI flags:
 - `packages/routing` — Routing resolution engine
 - `packages/shared` — Shared types and schemas
 - `packages/sdk` — Client SDK placeholder
+
+## Specs & Architecture
+
+See [`specs/`](specs/) for architecture documents and ADRs.
 
 ## API
 
