@@ -478,7 +478,7 @@ export function internalRoutes(opts: InternalRouteOptions) {
     return c.json({ data: presets })
   })
 
-  // Copy preset into route profile
+  // Copy preset into route profile — transactional full materialization
   app.post("/presets/:id/copy", async (c) => {
     const presetId = c.req.param("id")
     const body = await c.req.json().catch(() => ({}))
@@ -505,23 +505,161 @@ export function internalRoutes(opts: InternalRouteOptions) {
       return c.json({ error: `Route profile slug already exists: ${targetSlug}` }, 409)
     }
 
+    let config: any
+    try {
+      config = JSON.parse(preset.config_json)
+    } catch {
+      return c.json({ error: "Preset config_json is invalid JSON" }, 500)
+    }
+
     const profileId = randomUUID()
+    const now = new Date().toISOString()
 
-    await opts.db
-      .insertInto("route_profiles")
-      .values({
-        id: profileId,
-        slug: targetSlug,
-        name: targetName,
-        description: `Copied from preset ${presetId}`,
-        source_preset_id: presetId,
-        is_default: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+    try {
+      await opts.db.transaction().execute(async (trx) => {
+        // 1. Create route profile
+        await trx
+          .insertInto("route_profiles")
+          .values({
+            id: profileId,
+            slug: targetSlug,
+            name: targetName,
+            description: `Copied from preset ${presetId}`,
+            source_preset_id: presetId,
+            is_default: 0,
+            created_at: now,
+            updated_at: now,
+          })
+          .execute()
+
+        // 2. Create providers and models
+        const providerNameToId = new Map<string, string>()
+        const modelKeyToId = new Map<string, string>() // key = "providerName|modelExternalId"
+
+        const providers = Array.isArray(config.providers) ? config.providers : []
+        for (const p of providers) {
+          const providerId = randomUUID()
+          providerNameToId.set(p.name, providerId)
+
+          await trx
+            .insertInto("providers")
+            .values({
+              id: providerId,
+              route_profile_id: profileId,
+              name: p.name,
+              type: p.type,
+              adapter: p.adapter ?? null,
+              protocol: p.protocol ?? "openai",
+              base_url: p.base_url ?? null,
+              auth_type: p.auth_type ?? null,
+              allow_invalid_certificates: p.allow_invalid_certificates ? 1 : 0,
+              enabled: p.enabled !== undefined ? (p.enabled ? 1 : 0) : 1,
+              created_at: now,
+              updated_at: now,
+            })
+            .execute()
+
+          const models = Array.isArray(p.models) ? p.models : []
+          for (const m of models) {
+            const modelId = randomUUID()
+            modelKeyToId.set(`${p.name}|${m.model_id}`, modelId)
+            await trx
+              .insertInto("provider_models")
+              .values({
+                id: modelId,
+                provider_id: providerId,
+                model_id: m.model_id,
+                display_name: m.display_name ?? null,
+                context_window: m.context_window ?? null,
+                enabled: m.enabled !== undefined ? (m.enabled ? 1 : 0) : 1,
+                discovered_at: null,
+                created_at: now,
+                updated_at: now,
+              })
+              .execute()
+          }
+        }
+
+        // 3. Create experts, keywords, overrides
+        const expertNameToId = new Map<string, string>()
+        const experts = Array.isArray(config.experts) ? config.experts : []
+
+        for (const e of experts) {
+          const providerId = providerNameToId.get(e.provider_name)
+          if (!providerId) {
+            throw new Error(`Expert "${e.name}" references unknown provider "${e.provider_name}"`)
+          }
+          const modelId = modelKeyToId.get(`${e.provider_name}|${e.model_external_id}`)
+          if (!modelId) {
+            throw new Error(`Expert "${e.name}" references unknown model "${e.model_external_id}" for provider "${e.provider_name}"`)
+          }
+
+          const expertId = randomUUID()
+          expertNameToId.set(e.name, expertId)
+
+          await trx
+            .insertInto("experts")
+            .values({
+              id: expertId,
+              route_profile_id: profileId,
+              name: e.name,
+              display_name: e.display_name ?? null,
+              provider_id: providerId,
+              model_id: modelId,
+              system_prompt: e.system_prompt ?? "",
+              temperature: e.temperature ?? null,
+              max_tokens: e.max_tokens ?? null,
+              expose_as_model: e.expose_as_model !== undefined ? (e.expose_as_model ? 1 : 0) : 1,
+              enabled: e.enabled !== undefined ? (e.enabled ? 1 : 0) : 1,
+              created_at: now,
+              updated_at: now,
+            })
+            .execute()
+
+          const keywords = Array.isArray(e.keywords) ? e.keywords : []
+          for (const k of keywords) {
+            await trx
+              .insertInto("expert_keywords")
+              .values({
+                id: randomUUID(),
+                expert_id: expertId,
+                keyword: k.keyword,
+                description: k.description ?? null,
+                enabled: k.enabled !== undefined ? (k.enabled ? 1 : 0) : 1,
+              })
+              .execute()
+          }
+
+          const overrides = Array.isArray(e.overrides) ? e.overrides : []
+          for (const o of overrides) {
+            const oProviderId = providerNameToId.get(o.provider_name)
+            if (!oProviderId) {
+              throw new Error(`Override for expert "${e.name}" references unknown provider "${o.provider_name}"`)
+            }
+            const oModelId = modelKeyToId.get(`${o.provider_name}|${o.model_external_id}`)
+            if (!oModelId) {
+              throw new Error(`Override for expert "${e.name}" references unknown model "${o.model_external_id}" for provider "${o.provider_name}"`)
+            }
+            await trx
+              .insertInto("keyword_overrides")
+              .values({
+                id: randomUUID(),
+                expert_id: expertId,
+                keyword: o.keyword,
+                provider_id: oProviderId,
+                model_id: oModelId,
+                priority: o.priority ?? 100,
+                enabled: o.enabled !== undefined ? (o.enabled ? 1 : 0) : 1,
+              })
+              .execute()
+          }
+        }
       })
-      .execute()
 
-    return c.json({ id: profileId, slug: targetSlug, message: "Preset copied to route profile" }, 201)
+      return c.json({ id: profileId, slug: targetSlug, message: "Preset copied to route profile with full config" }, 201)
+    } catch (err) {
+      return c.json({ error: `Copy failed: ${String(err)}` }, 500)
+    }
   })
 
   // List recent routing events

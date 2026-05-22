@@ -4,6 +4,7 @@ import { createDatabaseConnection } from "@opengate/db"
 import { migrateToLatest, seedDefaults } from "@opengate/db"
 import { serve } from "./server.js"
 import { createLogger } from "./logger.js"
+import { exportRouteProfile, importRouteProfile } from "@opengate/core"
 import { existsSync } from "node:fs"
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
 import { join, resolve, basename } from "node:path"
@@ -67,24 +68,17 @@ async function main() {
   }
 
   if (cmd === "export") {
-    const profileFlag = rest.find((a) => a.startsWith("--profile="))
+    const profileFlag = rest.find((a: string) => a.startsWith("--profile="))
     const profileSlug = profileFlag ? profileFlag.split("=")[1] : rest[0]
     if (!profileSlug) {
-      console.error("Usage: opengate export --profile=<slug>")
+      console.error("Usage: opengate export --profile=<slug> > file.json")
       process.exit(2)
     }
     const config = getConfig()
     const db = createDatabaseConnection(config.databasePath)
-    const profile = await db
-      .selectFrom("route_profiles")
-      .selectAll()
-      .where("slug", "=", profileSlug)
-      .executeTakeFirst()
-    if (!profile) {
-      console.error(`Profile not found: ${profileSlug}`)
-      process.exit(1)
-    }
-    console.log(JSON.stringify(profile, null, 2))
+    await migrateToLatest(db)
+    const exported = await exportRouteProfile(db, profileSlug)
+    console.log(JSON.stringify(exported, null, 2))
     return
   }
 
@@ -98,8 +92,13 @@ async function main() {
     const db = createDatabaseConnection(config.databasePath)
     await migrateToLatest(db)
     const data = JSON.parse(readFileSync(filePath, "utf-8"))
-    console.log("Import validation passed (not yet implemented transactionally).")
-    console.log(JSON.stringify(data, null, 2))
+    const targetSlugFlag = rest.find((a: string) => a.startsWith("--slug="))
+    const overwriteFlag = rest.includes("--overwrite")
+    const result = await importRouteProfile(db, data, {
+      targetSlug: targetSlugFlag ? targetSlugFlag.split("=")[1] : undefined,
+      overwrite: overwriteFlag,
+    })
+    console.log(`Imported route profile: ${result.slug} (${result.profileId})`)
     return
   }
 
