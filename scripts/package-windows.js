@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Windows packaging script for OpenGate.
- * Strategy: Bundle with esbuild + Build a real native Single Executable Application (.exe)
+ * Strategy: Compiles apps/server/src/cli.ts into a single standalone native opengate.exe
  */
 
 import { execSync } from "node:child_process"
@@ -23,39 +23,40 @@ function sh(cmd) {
 }
 
 function buildExecutable() {
-  console.log("\n--- 1. Bundling du serveur avec esbuild ---")
+  console.log("\n--- 1. Bundling global de la CLI et du Serveur via esbuild ---")
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  // On compile tout le serveur et ses dépendances de production dans un seul fichier magique index.js
-  sh(`npx esbuild apps/server/src/index.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-server.js" --external:better-sqlite3`)
+  // Compilation de la CLI (qui englobe le serveur) en résolvant tous les workspaces locaux
+  // On exclut les éventuels drivers natifs s'il y en a (ici configuré pour rester générique)
+  sh(`npx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --minify --outfile="${outDir}/dist-cli.js"`)
 
-  console.log("\n--- 2. Préparation du binaire Node.js de base ---")
+  console.log("\n--- 2. Préparation du moteur d'exécution Node.js natif ---")
   const nodeExePath = join(outDir, "node.exe")
-  // Copie le binaire node de la machine de build vers l'artefact
+  // Copie l'exécutable node.exe de la machine de build actuelle
   copyFileSync(process.execPath, nodeExePath)
 
-  console.log("\n--- 3. Génération de la configuration SEA ---")
+  console.log("\n--- 3. Configuration et génération du blob SEA ---")
   const seaConfig = {
-    main: join(outDir, "dist-server.js"),
+    main: join(outDir, "dist-cli.js"),
     output: join(outDir, "opengate.blob")
   }
   const configPath = join(outDir, "sea-config.json")
   writeFileSync(configPath, JSON.stringify(seaConfig, null, 2))
 
-  // Génération du blob
+  // Compilation du code JS bundlé en blob binaire injectable
   sh(`node --experimental-sea-config "${configPath}"`)
 
-  console.log("\n--- 4. Injection du code dans l'exécutable ---")
+  console.log("\n--- 4. Injection du code à l'intérieur du binaire ---")
   const finalExe = join(outDir, "opengate.exe")
   
-  // Utilisation de npx postject pour injecter le blob JS directement dans le binaire node.exe
+  // Outil officiel Node.js pour fusionner le blob dans l'exécutable Windows
   sh(`npx postject "${nodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
   
-  // Renommer le binaire customisé
+  // Renommage du binaire Node modifié en notre commande finale
   import('node:fs').then(fs => fs.renameSync(nodeExePath, finalExe))
 
-  console.log("\n--- 5. Copie des Assets (Web static & Migrations) ---")
-  // Copie Web
+  console.log("\n--- 5. Intégration des assets complémentaires (Web & Migrations) ---")
+  // Copie de l'application Web (Frontend statique servi par Hono)
   const webDistSrc = join(root, 'apps', 'web', 'dist')
   const webDistDst = join(outDir, 'apps', 'web', 'dist')
   if (existsSync(webDistSrc)) {
@@ -63,7 +64,7 @@ function buildExecutable() {
     sh(`xcopy /E /I /Y "${webDistSrc}" "${webDistDst}"`)
   }
 
-  // Copie DB Migrations
+  // Copie des migrations de base de données (Kysely) requises lors du `migrateToLatest` au boot
   const migrationsSrc = join(root, 'packages', 'db', 'src', 'migrations')
   const migrationsDst = join(outDir, 'packages', 'db', 'src', 'migrations')
   if (existsSync(migrationsSrc)) {
@@ -71,14 +72,19 @@ function buildExecutable() {
     sh(`xcopy /E /I /Y "${migrationsSrc}" "${migrationsDst}"`)
   }
 
-  // Nettoyage des fichiers intermédiaires de build
+  // Copie du README
+  if (existsSync(join(root, "README.md"))) {
+    copyFileSync(join(root, "README.md"), join(outDir, "README.md"))
+  }
+
+  // Nettoyage des fichiers intermédiaires pour garder l'artefact clean
   rmSync(configPath)
   rmSync(join(outDir, "opengate.blob"))
-  rmSync(join(outDir, "dist-server.js"))
+  rmSync(join(outDir, "dist-cli.js"))
 
-  console.log("\n--- 6. Compression finale de l'artefact ---")
+  console.log("\n--- 6. Compression ultra-rapide de l'artefact avec 7-Zip ---")
   sh(`7z a "${zipPath}" "${outDir}\\*"`)
-  console.log(`\nSuccès ! Ton archive contient un vrai opengate.exe indépendant : ${zipPath}`)
+  console.log(`\nFait ! Ton archive Windows contient maintenant un vrai 'opengate.exe' indépendant : ${zipPath}`)
 }
 
 clean()
