@@ -11,15 +11,11 @@ import { routeProfileRoutes } from "./routes/route-profiles.js"
 import { internalRoutes } from "./routes/internal.js"
 import { openApiSpec } from "./openapi.js"
 
-// --- INJECTION DE L'UI EN MÉMOIRE SANS ACCÈS DISQUE ---
-// esbuild va lire ce fichier au build et remplacer cet import par la string pure du HTML.
-// @ts-ignore
-import indexHtml from "../../../apps/web/dist/index.html" with { type: "text" }
-
-
 export interface ServeOptions {
   port: number
   db: Kysely<Database>
+  // Callback optionnel permettant d'injecter un gestionnaire d'UI personnalisé (ex: SEA)
+  onSpaFallback?: (c: any) => string | Promise<string>
 }
 
 export function serve(opts: ServeOptions) {
@@ -35,7 +31,6 @@ export function serve(opts: ServeOptions) {
   app.route("/_opengate/status", statusRoute(opts))
   app.route("/_opengate", internalRoutes(opts))
   app.route("/_opengate/route-profiles", routeProfileRoutes(opts))
-
   app.route("/c/:profileSlug/v1", routeProfileRoutes(opts))
 
   app.all("/v1/*", async (c) => {
@@ -47,22 +42,21 @@ export function serve(opts: ServeOptions) {
 
     const defaultSlug = setting ? JSON.parse(setting.value_json) : undefined
     if (!defaultSlug || typeof defaultSlug !== "string") {
-      return c.json(
-        { error: "No default route profile configured. Use /c/{profileSlug}/v1." },
-        404,
-      )
+      return c.json({ error: "No default route profile configured." }, 404)
     }
 
     const url = new URL(c.req.url)
     const rest = url.pathname.replace(/^\/v1/, "")
-    const newUrl = `/c/${defaultSlug}/v1${rest}${url.search}`
-    return c.redirect(newUrl, 307)
+    return c.redirect(`/c/${defaultSlug}/v1${rest}${url.search}`, 307)
   })
 
-  // SPA fallback global pour React Router : On retourne le HTML stocké dans la RAM.
-  // Les routes API déclarées au-dessus restent bien évidemment prioritaires.
-  app.get("/*", (c) => {
-    return c.html(indexHtml)
+  // Gestion du SPA Fallback
+  app.get("/*", async (c) => {
+    if (opts.onSpaFallback) {
+      const html = await opts.onSpaFallback(c)
+      return c.html(html)
+    }
+    return c.text("OpenGate API is running. UI is only available in packaged production mode.", 200)
   })
 
   const server = nodeServe({
