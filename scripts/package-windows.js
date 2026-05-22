@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
  * Windows packaging script for OpenGate.
- * Strategy: Bundle with esbuild using native text loaders to inline HTML assets,
- * then inject into a single fully autonomous Node SEA container.
+ * Strategy: Bundle the dedicated packaged entrypoint and inject into Node SEA.
  */
 
 import { execSync } from "node:child_process"
@@ -11,7 +10,15 @@ import { join, resolve } from "node:path"
 
 const root = resolve(".")
 
-// Récupération dynamique de la version pour l'incrémentation des releases
+// 1. Guard de sécurité : Vérification de la présence de l'UI React compilée
+const webIndexHtmlPath = join(root, "apps", "web", "dist", "index.html")
+if (!existsSync(webIndexHtmlPath)) {
+  console.error("\n[ERREUR] Build web introuvable ! Extinction du processus.")
+  console.error("-> Veuillez exécuter: pnpm --filter @opengate/web build avant de packager.\n")
+  process.exit(1)
+}
+
+// Extraction de la version pour l'isolation de l'artéfact de release
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"))
 const version = pkg.version || "0.0.0"
 
@@ -33,9 +40,9 @@ function buildExecutable() {
   console.log(`\n--- Préparation du build OpenGate v${version} ---`)
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 
-  console.log("\n--- 1. Bundling de la CLI et du Serveur via esbuild (Inlining HTML) ---")
-  // On ajoute le loader : .html=text pour fusionner le index.html directement dans le JS généré
-  sh(`pnpm dlx esbuild apps/server/src/cli.ts --bundle --platform=node --target=node20 --format=esm --minify --loader:.html=text --outfile="${join(outDir, "dist-cli.js")}"`)
+  console.log("\n--- 1. Bundling via esbuild (Cible : Entrée Packagée) ---")
+  // Compilation à partir du point d'entrée dédié au packaging
+  sh(`pnpm dlx esbuild apps/server/src/cli-packaged.ts --bundle --platform=node --target=node20 --format=esm --minify --loader:.html=text --outfile="${join(outDir, "dist-cli.js")}"`)
 
   console.log("\n--- 2. Préparation du moteur d'exécution Node.js natif ---")
   const tempNodeExePath = join(outDir, "node.exe")
@@ -54,12 +61,11 @@ function buildExecutable() {
   console.log("\n--- 4. Injection du code à l'intérieur du binaire ---")
   sh(`pnpm dlx postject "${tempNodeExePath}" NODE_SEA_BLOB "${join(outDir, "opengate.blob")}" --sentinel-fuse "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"`)
   
-  // Renommage synchrone immédiat pour garantir l'identité du fichier final
   const finalExe = join(outDir, "opengate.exe")
   renameSync(tempNodeExePath, finalExe)
   console.log(`> Binaire renommé avec succès en : opengate.exe`)
 
-  console.log("\n--- 5. Intégration de la documentation de base ---")
+  console.log("\n--- 5. Intégration de la documentation ---")
   if (existsSync(join(root, "README.md"))) {
     copyFileSync(join(root, "README.md"), join(outDir, "README.md"))
   }
@@ -69,9 +75,9 @@ function buildExecutable() {
   rmSync(join(outDir, "opengate.blob"))
   rmSync(join(outDir, "dist-cli.js"))
 
-  console.log("\n--- 6. Compression finale de l'exécutable unique ---")
+  console.log("\n--- 6. Compression de l'exécutable unique ---")
   sh(`7z a "${zipPath}" "${outDir}\\*"`)
-  console.log(`\nFait ! L'archive autonome générée est : opengate-windows-x64-v${version}.zip`)
+  console.log(`\nSuccès ! L'archive incrémentée est prête : opengate-windows-x64-v${version}.zip`)
 }
 
 clean()
